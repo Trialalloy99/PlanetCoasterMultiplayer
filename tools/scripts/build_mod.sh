@@ -16,9 +16,13 @@ for f in "$MOD"/Main/*.lua; do "$LUAC" -p "$f"; done
 (cd "$ROOT/tools/cobra-tools" && "$PY" ovl_tool_cmd.py new -g "Planet Coaster 2" -i "$MOD/Main" -o "$BUILD/Main.ovl" -f)
 cp "$MOD/Manifest.xml" "$BUILD/"
 
+# Native DLL bauen (MSVC) und beilegen
+cmd //c "$(cygpath -w "$ROOT/native/build.bat")"
+cp "$ROOT/build/native/PC2MPNative.dll" "$BUILD/"
+
 DEST="$GAME/Win64/ovldata/PC2MP"
 mkdir -p "$DEST"
-cp "$BUILD"/Main.ovl "$BUILD"/Manifest.xml "$DEST/"
+cp "$BUILD"/Main.ovl "$BUILD"/Manifest.xml "$BUILD"/PC2MPNative.dll "$DEST/"
 ls "$BUILD"/*.ovs >/dev/null 2>&1 && cp "$BUILD"/*.ovs "$DEST/" || true
 echo "Installiert nach: $DEST"
 ls -la "$DEST"

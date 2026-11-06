@@ -31,6 +31,7 @@ local function Diagnose(Log)
     Log.Write("io=" .. type(global.io) .. " os=" .. type(global.os) .. " debug=" .. type(global.debug))
     Log.Write("api.json=" .. type(api.json) .. " api.undo=" .. type(api.undo) .. " api.world=" .. type(api.world))
     Log.Write("WriteStringToFile funktioniert=" .. tostring(Log.bFileWorks))
+    Log.Write("native DLL=" .. tostring(Log.fnNative ~= nil) .. " fehler=" .. tostring(Log.sNativeError))
 end
 
 function LuaDB.Init()

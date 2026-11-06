@@ -25,8 +25,8 @@ function PC2MPManager.Activate(self)
     UndoHooks.WrapUndoAPI()
     local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)
     if ok then
-        local ok2, err = pcall(UndoHooks.WrapEditorsAPI, tWorldAPIs)
-        if not ok2 then Log.Write("WrapEditorsAPI Fehler: " .. tostring(err)) end
+        local ok2, err = pcall(UndoHooks.InspectEditorsAPI, tWorldAPIs)
+        if not ok2 then Log.Write("InspectEditorsAPI Fehler: " .. tostring(err)) end
     else
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
     end
