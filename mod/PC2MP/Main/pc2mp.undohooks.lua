@@ -57,14 +57,7 @@ function UndoHooks.WrapObjectMethods(obj, sLabel, tSkip)
     end
     table.sort(tNames)
     Log.Write("META " .. sLabel .. " Methoden: " .. table.concat(tNames, ", "))
-    for _, sName in global.ipairs(tNames) do
-        if not (tSkip and tSkip[sName]) then
-            local bOk = WrapFunctionInTable(idx, sName, sLabel .. ":" .. sName)
-            if not bOk then
-                Log.Write("META " .. sLabel .. ":" .. sName .. " nicht wrapbar")
-            end
-        end
-    end
+    -- Bewusst KEIN Wrapping der nativen Metatable mehr: Verdacht auf Absturz beim Beenden.
 end
 
 -- api.undo.* wrappen (globale Tabelle, früh möglich).
@@ -84,7 +77,29 @@ function UndoHooks.WrapUndoAPI()
     UndoHooks.bUndoWrapped = true
 end
 
--- Editors-World-API wrappen (erst verfügbar, wenn eine Welt/Park geladen ist).
+-- Nur lesen: Typ der Editors-API und Methodennamen loggen, nichts ersetzen.
+function UndoHooks.InspectEditorsAPI(tWorldAPIs)
+    local editors = tWorldAPIs and tWorldAPIs.editors
+    Log.Write("tWorldAPIs.editors type=" .. type(editors))
+    if editors == nil then return end
+    if type(editors) == "table" then
+        local tNames = {}
+        for k, v in pairs(editors) do
+            if type(v) == "function" then table.insert(tNames, tostring(k)) end
+        end
+        table.sort(tNames)
+        Log.Write("editors Funktionen: " .. table.concat(tNames, ", "))
+    end
+    UndoHooks.WrapObjectMethods(editors, "editorsAPI")
+    -- Eine Hierarchy zum Ansehen erzeugen (wird nie committed, nur Methoden auflisten)
+    local okH, clh = pcall(function() return editors:CreateUndoOperationsHierarchy() end)
+    Log.Write("Test-Hierarchy: ok=" .. tostring(okH) .. " " .. Log.ToStr(clh))
+    if okH and clh ~= nil then
+        UndoHooks.WrapObjectMethods(clh, "Hierarchy")
+    end
+end
+
+-- (Alt, derzeit ungenutzt) Editors-World-API wrappen.
 function UndoHooks.WrapEditorsAPI(tWorldAPIs)
     local editors = tWorldAPIs and tWorldAPIs.editors
     Log.Write("tWorldAPIs.editors type=" .. type(editors))

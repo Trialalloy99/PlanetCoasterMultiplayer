@@ -52,8 +52,37 @@ function Log.Args(...)
     return table.concat(parts, ", ")
 end
 
+-- Native DLL (PC2MPNative.dll) laden: Pfad relativ zum Spielordner, wie bei ACSEDebug.
+Log.sDllPath = ".\\Win64\\ovldata\\PC2MP\\PC2MPNative.dll"
+Log.fnNative = nil
+Log.sNativeError = nil
+
+function Log.InitNative()
+    if Log.fnNative ~= nil or Log.sNativeError ~= nil then return end
+    local pkg = global.package
+    if type(pkg) ~= "table" or type(pkg.loadlib) ~= "function" then
+        Log.sNativeError = "package.loadlib nicht verfuegbar"
+        return
+    end
+    local ok, fn, sErr, sWhere = pcall(pkg.loadlib, Log.sDllPath, "pc2mp_log")
+    if ok and type(fn) == "function" then
+        Log.fnNative = fn
+        local okPing, fnPing = pcall(pkg.loadlib, Log.sDllPath, "pc2mp_ping")
+        if okPing and type(fnPing) == "function" then
+            local okCall, nPong = pcall(fnPing)
+            pcall(fn, "[PC2MP] ping -> " .. tostring(okCall) .. " " .. tostring(nPong))
+        end
+    else
+        Log.sNativeError = "loadlib fehlgeschlagen: " .. tostring(fn) .. " " .. tostring(sErr) .. " " .. tostring(sWhere)
+    end
+end
+
 function Log.Write(sMsg)
     local sLine = "[PC2MP] " .. tostring(sMsg)
+    Log.InitNative()
+    if Log.fnNative then
+        pcall(Log.fnNative, sLine)
+    end
     if api.debug and api.debug.Trace then
         pcall(api.debug.Trace, sLine)
     end
