@@ -13,6 +13,7 @@ local module = global.module
 local Mutators = require("Environment.ModuleMutators")
 local Log = require("pc2mp.log")
 local Capture = require("pc2mp.capture")
+local Events = require("pc2mp.events")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -29,6 +30,8 @@ function PC2MPManager.Activate(self)
     end
     local ok2, err = pcall(Capture.Install, tWorldAPIs)
     if not ok2 then Log.Write("Capture.Install Fehler: " .. tostring(err)) end
+    local ok3, err3 = pcall(Events.Register, tWorldAPIs)
+    if not ok3 then Log.Write("Events.Register Fehler: " .. tostring(err3)) end
 end
 
 function PC2MPManager.Advance(self, _nDeltaTime)
@@ -36,6 +39,7 @@ end
 
 function PC2MPManager.Deactivate(self)
     Log.Write("Manager Deactivate")
+    pcall(Events.Unregister)
 end
 
 function PC2MPManager.Shutdown(self)

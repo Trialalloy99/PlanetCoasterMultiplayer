@@ -162,6 +162,7 @@ function Capture.HookHierarchy(clhSample)
         if type(fnOrig) == "function" and (tRecordCalls[sName] or tEditObjectSources[sName] or sName == "GetFullUndoChangeList") then
             local ok = pcall(function()
                 idx[sName] = function(self, ...)
+                    S.nHierCalls = (S.nHierCalls or 0) + 1
                     local r1, r2, r3 = fnOrig(self, ...)
                     local okRec, err = pcall(function(...)
                         local rec = GetRec(self)
@@ -214,8 +215,15 @@ function Capture.HookUndoAPI()
     S.bUndoHooked = true
 
     WrapUndo("PreviewChangeList", function(fnOrig, cl, ...)
+        Capture.LogMethodsOnce(cl, "ChangeList")
         local waitToken, previewToken = fnOrig(cl, ...)
+        if previewToken ~= nil then Capture.LogMethodsOnce(previewToken, "PreviewToken") end
         local rec = S.tClRec[cl]
+        if rec == nil and not S.bLoggedMiss then
+            S.bLoggedMiss = true
+            Log.Write("DIAG: ChangeList ohne Record. hierCalls=" .. tostring(S.nHierCalls)
+                .. " cl=" .. Log.ToStr(cl) .. " extraArgs=" .. Log.Args(...))
+        end
         if rec ~= nil and previewToken ~= nil then S.tTokRec[previewToken] = rec end
         return waitToken, previewToken
     end)
@@ -242,6 +250,7 @@ function Capture.HookUndoAPI()
             calls = rec and rec.calls or nil,
             objects = tObjs,
             unknown = (rec == nil) or nil,
+            hc = S.nHierCalls or 0,
         })
         if not okE then Log.Write("EmitAction Fehler: " .. tostring(err)) end
         return w
@@ -269,6 +278,23 @@ function Capture.Install(tWorldAPIs)
     local ok, clh = pcall(function() return editors:CreateUndoOperationsHierarchy() end)
     if ok and clh ~= nil then
         Capture.HookHierarchy(clh)
+        -- Selbsttest: wirkt das Metatable-Wrapping auf eine NEUE Hierarchy?
+        local okT, sRes = pcall(function()
+            local clh2 = editors:CreateUndoOperationsHierarchy()
+            local nBefore = S.nHierCalls or 0
+            local cl2 = clh2:GetFullUndoChangeList()
+            local mt1, mt2 = getmetatable(clh), getmetatable(clh2)
+            local apis2 = api.world.GetWorldAPIs()
+            return "wrapperAufgerufen=" .. tostring((S.nHierCalls or 0) > nBefore)
+                .. " recGesetzt=" .. tostring(S.tHierRec[clh2] ~= nil)
+                .. " clRec=" .. tostring(cl2 ~= nil and S.tClRec[cl2] ~= nil)
+                .. " gleicheMetatable=" .. tostring(global.rawequal(mt1, mt2))
+                .. " mtType=" .. type(mt1)
+                .. " gleicheEditorsTabelle=" .. tostring(global.rawequal(apis2 and apis2.editors, editors))
+                .. " gleicheWorldAPIs=" .. tostring(global.rawequal(apis2, tWorldAPIs))
+                .. " hatMetatableFeld=" .. tostring(type(mt1) == "table" and global.rawget(mt1, "__metatable") ~= nil)
+        end)
+        Log.Write("SELBSTTEST " .. tostring(okT) .. " " .. tostring(sRes))
     else
         Log.Write("Capture: CreateUndoOperationsHierarchy fehlgeschlagen: " .. tostring(clh))
     end
