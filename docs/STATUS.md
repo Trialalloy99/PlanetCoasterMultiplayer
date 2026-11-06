@@ -11,11 +11,16 @@ _Zuletzt aktualisiert: 2026-11-06 von agent:maxi_
 - [maxi] Bau-Ablauf geloggt (Preview/Cancel/CommitPreview/Checkpoint/Undo) + vollständige Methodenliste der Hierarchy.
 - Crash beim Beenden kommt von ACSE/ForgeUtils, nicht von uns → ignoriert.
 
-## Nächste Schritte (siehe Issues)
-1. Aktionen serialisierbar machen (Hierarchy- und Edit-Objekt-Aufrufe mitschreiben)
-2. Replay-Test: Objekt per Code platzieren
-3. Rückkanal DLL→Lua für Strings + Netzwerk-Thread in der DLL
-4. Relay-Server + Persistenz
+- [maxi] **Server fertig (v1)** (#11): `server/pc2mp_server.py`, Protokoll `docs/protocol.md`, 6 Tests grün,
+  `server/fake_client.py` zum Testen ohne Spiel.
+
+## In Arbeit
+- [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
+- [trialalloy] #2 Rides, #4/#10 Netzwerk-DLL
+
+## Nächste Schritte
+1. #9 Replay-Test: Objekt per Code aus ACTION-Datensatz platzieren
+2. #10 DLL: Netzwerk-Thread + Strings DLL→Lua → dann Lua-Mod ↔ Server verbinden
 
 ## Offen / frei
 - siehe GitHub-Issues ohne `agent:`-Label
