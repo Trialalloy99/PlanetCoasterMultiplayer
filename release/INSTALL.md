@@ -21,9 +21,10 @@ lokale Spiegel-Test (Zwilling 5 m daneben).
    `python server/save_tool.py download --host <server-ip>`
 4. Beide laden **diesen** Spielstand. Ab dann wird gebaut und synchronisiert.
 **Weiterspielen (ab v0.3):** Einfach im Spiel speichern. Die Zuordnungen der Objekte stecken im Park-Spielstand, und beim nächsten Laden holt die Mod nur verpasste Aktionen nach (kein doppeltes Bauen).
-- Synchronisiert: Szenerie-Objekte platzieren, verschieben, drehen, skalieren, löschen.
+- Synchronisiert: Szenerie-Objekte platzieren, verschieben, drehen, skalieren, löschen; **Terrain** (alle Pinsel) und **Wege zeichnen** (neu, noch experimentell).
 - **Strg+Z / Strg+Y** machen nur **deine eigenen** Aktionen rückgängig, und das bei allen.
-- Noch nicht synchronisiert: Wege, Terrain, Fahrgeschäfte, Achterbahnen, Geld, Gäste.
+- Noch nicht synchronisiert: Wege löschen/ändern, Wasser, Fahrgeschäfte, Achterbahnen, Geld, Gäste, Tageszeit.
+- Strg+Z gilt nur für Szenerie (nicht für Terrain/Wege).
 - Beim Beenden kann das Spiel abstürzen. Das kommt von ACSE, Speichern funktioniert.
 
 **Log:** `Win64\ovldata\PC2MP\PC2MP_native.log` (Zeilen mit `Sync:` zeigen Verbindung und Aktionen).
