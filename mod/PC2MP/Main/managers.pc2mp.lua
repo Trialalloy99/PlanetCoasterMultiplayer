@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------
 --/  PC2MP Park-Manager: läuft im Park (CPTEnvironment).
---/  Holt die World-APIs und installiert die Capture-Hooks.
+--/  Registriert die Event-Erkennung, treibt Replay-Jobs pro Frame an
+--/  und aktiviert (vorerst) den lokalen Spiegel-Test.
 -----------------------------------------------------------------------
 local global = _G
 local api = global.api
@@ -12,8 +13,9 @@ local module = global.module
 
 local Mutators = require("Environment.ModuleMutators")
 local Log = require("pc2mp.log")
-local Capture = require("pc2mp.capture")
 local Events = require("pc2mp.events")
+local Replay = require("pc2mp.replay")
+local Mirror = require("pc2mp.mirror")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -28,17 +30,26 @@ function PC2MPManager.Activate(self)
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
         return
     end
-    local ok2, err = pcall(Capture.Install, tWorldAPIs)
-    if not ok2 then Log.Write("Capture.Install Fehler: " .. tostring(err)) end
+    Replay.Init(tWorldAPIs)
+    Events.fnIsSuppressing = Replay.IsSuppressing
     local ok3, err3 = pcall(Events.Register, tWorldAPIs)
     if not ok3 then Log.Write("Events.Register Fehler: " .. tostring(err3)) end
+    Events.AddListener(Mirror.OnAction)
+    Log.Write("Spiegel-Test aktiv (Zwilling bei x+" .. tostring(Mirror.nOffsetX) .. ")")
+    self.bActive = true
 end
 
 function PC2MPManager.Advance(self, _nDeltaTime)
+    if not self.bActive then return end
+    local ok, err = pcall(Events.Tick)
+    if not ok then Log.Write("Events.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(Replay.Tick)
+    if not ok then Log.Write("Replay.Tick Fehler: " .. tostring(err)) end
 end
 
 function PC2MPManager.Deactivate(self)
     Log.Write("Manager Deactivate")
+    self.bActive = false
     pcall(Events.Unregister)
 end
 
