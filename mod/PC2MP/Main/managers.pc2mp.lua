@@ -45,6 +45,8 @@ function PC2MPManager.Activate(self)
     Events.fnOnOwnPart = Replay.OnOwnPart
     Events.fnNow = function() return Replay.nFrame end
     Events.tListeners = {}
+    local okG, errG = pcall(Events.InstallCommitGate)
+    if not okG then Log.Write("Commit-Gate Fehler: " .. tostring(errG)) end
     local ok3, err3 = pcall(Events.Register, tWorldAPIs)
     if not ok3 then Log.Write("Events.Register Fehler: " .. tostring(err3)) end
 

@@ -12,8 +12,15 @@ lokale Spiegel-Test (Zwilling 5 m daneben).
 **Deinstallation:** Ordner `Win64\ovldata\PC2MP` löschen.
 
 ## Multiplayer (v0.2, Szenerie)
-- **Alle** starten einen **neuen, leeren Park** (gleiche Karte/Vorlage) und verbinden sich mit demselben Server.
-  Was schon auf dem Server liegt, wird beim Laden nachgebaut. (Bestehende Parks weiterspielen kommt mit #14.)
+**Alle brauchen dieselbe Startwelt** (neue Sandbox-Parks werden zufällig generiert und sind nie gleich!):
+1. Server-Daten leeren (Maxi/Claude).
+2. Spieler A legt einen neuen Park an, **speichert sofort** (ohne zu bauen) und lädt ihn hoch:
+   `python server/save_tool.py upload --host <server-ip> "<Saves-Ordner>\<park>.park2"`
+   (Saves-Ordner: `python server/save_tool.py savesdir`)
+3. Spieler B lädt ihn herunter (landet direkt im eigenen Saves-Ordner):
+   `python server/save_tool.py download --host <server-ip>`
+4. Beide laden **diesen** Spielstand. Ab dann wird gebaut und synchronisiert.
+Bestehende Parks später weiterspielen kommt mit #14.
 - Synchronisiert: Szenerie-Objekte platzieren, verschieben, drehen, skalieren, löschen.
 - **Strg+Z / Strg+Y** machen nur **deine eigenen** Aktionen rückgängig, und das bei allen.
 - Noch nicht synchronisiert: Wege, Terrain, Fahrgeschäfte, Achterbahnen, Geld, Gäste.

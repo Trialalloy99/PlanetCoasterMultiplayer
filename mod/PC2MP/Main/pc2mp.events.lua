@@ -97,8 +97,60 @@ function Events.IsIgnored(nPartID)
     return false
 end
 
+---------------------------------------------------------------------
+-- Commit-Gate: Nur Teile, die kurz nach einem echten Spieler-Commit
+-- (api.undo.CommitPreview außerhalb unserer Replays) gemeldet werden, sind Spieler-Aktionen.
+-- Beim Laden eines Parks feuert PlacementPartCommittedMessage für ALLE vorhandenen Teile
+-- (z. B. generierte Bäume), ohne dass jemand gebaut hat -> die werden so ignoriert.
+---------------------------------------------------------------------
+Events.nGateFrames = 90
+Events.nLastUserCommitFrame = -100000
+Events.nGateDropped = 0
+
+function Events.OnCommitPreview()
+    if Events.fnIsSuppressing and Events.fnIsSuppressing() then return end -- eigenes Replay
+    Events.nLastUserCommitFrame = Events.fnNow()
+end
+
+function Events.InstallCommitGate()
+    api.pc2mp = api.pc2mp or {}
+    -- api.undo ist global geteilt: nur einmal wrappen, Ziel-Funktion austauschbar halten
+    api.pc2mp.fnOnCommitPreview = Events.OnCommitPreview
+    if api.pc2mp.bCommitGate then return true end
+    local undo = api.undo
+    local fnOrig = undo and undo.CommitPreview
+    if type(fnOrig) ~= "function" then
+        Log.Write("Events: CommitPreview nicht gefunden, Commit-Gate aus")
+        return false
+    end
+    local ok = pcall(function()
+        undo.CommitPreview = function(...)
+            local fn = api.pc2mp.fnOnCommitPreview
+            if fn then pcall(fn) end
+            return fnOrig(...)
+        end
+    end)
+    api.pc2mp.bCommitGate = ok
+    Log.Write("Events: Commit-Gate " .. (ok and "aktiv" or "FEHLGESCHLAGEN"))
+    return ok
+end
+
+function Events.IsUserCommitWindow()
+    if not api.pc2mp or not api.pc2mp.bCommitGate then return true end -- ohne Gate: altes Verhalten
+    return (Events.fnNow() - Events.nLastUserCommitFrame) <= Events.nGateFrames
+end
+
 function Events.HandlePart(nPartID, nTry)
     if Events.IsIgnored(nPartID) then return end
+    -- Erster Versuch: nur im Fenster nach einem Spieler-Commit (Wiederholungen sind schon akzeptiert)
+    if (nTry or 0) == 0 and not Events.tKnownOriginals[nPartID] and not Events.IsUserCommitWindow() then
+        Events.nGateDropped = Events.nGateDropped + 1
+        if Events.nGateDropped <= 3 or Events.nGateDropped % 500 == 0 then
+            Log.Write("Events: Teil " .. tostring(nPartID) .. " ohne Spieler-Commit ignoriert (gesamt "
+                .. Events.nGateDropped .. ")")
+        end
+        return
+    end
     if not Events.tKnownOriginals[nPartID] and Events.fnIsSuppressing and Events.fnIsSuppressing() then
         Log.Write("Events: Teil " .. tostring(nPartID) .. " während Replay -> als eigenes ignoriert")
         Events.IgnoreFor(nPartID, 30)
