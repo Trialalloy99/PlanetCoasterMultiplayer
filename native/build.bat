@@ -5,7 +5,7 @@ rem   2. sonst zig cc: %ZIG% oder zig.exe im PATH oder tools\zig*\zig.exe (neben
 rem Aufruf: native\build.bat          (Test-DLL + Tests: native\test\run_tests.bat)
 setlocal
 set "ROOT=%~dp0.."
-set "SRC=%~dp0pc2mp_native.c %~dp0resolve.c %~dp0net.c"
+set "SRC=%~dp0pc2mp_native.c %~dp0resolve.c %~dp0net.c %~dp0files.c"
 if not exist "%ROOT%\build\native" mkdir "%ROOT%\build\native"
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -14,14 +14,14 @@ if exist "%VSWHERE%" (
 )
 if defined VSDIR (
   call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
-  cl /nologo /O2 /W4 /MT /LD /D_CRT_SECURE_NO_WARNINGS %SRC% ws2_32.lib /Fo"%ROOT%\build\native\\" /Fe"%ROOT%\build\native\PC2MPNative.dll" /link /NOLOGO || exit /b 1
+  cl /nologo /O2 /W4 /MT /LD /D_CRT_SECURE_NO_WARNINGS %SRC% ws2_32.lib bcrypt.lib shell32.lib ole32.lib /Fo"%ROOT%\build\native\\" /Fe"%ROOT%\build\native\PC2MPNative.dll" /link /NOLOGO || exit /b 1
   echo OK ^(MSVC^): %ROOT%\build\native\PC2MPNative.dll
   exit /b 0
 )
 
 call :findzig
 if not defined ZIG (echo Weder MSVC noch zig gefunden. zig: https://ziglang.org/download/ entpacken und ZIG=...\zig.exe setzen & exit /b 1)
-"%ZIG%" cc -target x86_64-windows-gnu -O2 -Wall -Wextra -shared -o "%ROOT%\build\native\PC2MPNative.dll" %SRC% -lws2_32 || exit /b 1
+"%ZIG%" cc -target x86_64-windows-gnu -O2 -Wall -Wextra -shared -o "%ROOT%\build\native\PC2MPNative.dll" %SRC% -lws2_32 -lbcrypt -lshell32 -lole32 || exit /b 1
 echo OK ^(zig^): %ROOT%\build\native\PC2MPNative.dll
 exit /b 0
 

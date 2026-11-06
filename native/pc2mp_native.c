@@ -31,6 +31,7 @@
 #include <string.h>
 #include "frontier_lua.h"
 #include "net.h"
+#include "files.h"
 
 #define EXPORT __declspec(dllexport)
 
@@ -150,12 +151,18 @@ static int tv_tointeger(unsigned char *tv, long long *out)
     return 0;
 }
 
-/* Frontier stempelt nach jedem Push einen globalen Zaehler in den lua_State-Extraspace. */
+/* Frontier stempelt nach jedem Push einen globalen Zaehler in den lua_State-Extraspace.
+   Nur schreiben, wenn der Slot plausibel einen frueheren Zaehlerstand enthaelt (Review #12/#14):
+   0 <= Zaehler - Slot < 2^30, sonst ist [L-0x10] vermutlich kein Stempel. */
 static void stamp(void *L)
 {
     if (g_res.stamp) {
-        int v = ++*g_res.stamp;
-        *(int *)((unsigned char *)L + L_STAMP_OFF) = v;
+        int *slot = (int *)((unsigned char *)L + L_STAMP_OFF);
+        unsigned int diff = (unsigned int)*g_res.stamp - (unsigned int)*slot;
+        if (diff < (1u << 30)) {
+            int v = ++*g_res.stamp;
+            *slot = v;
+        }
     }
 }
 
@@ -447,6 +454,134 @@ EXPORT int pc2mp_read_config(void *L)
     return 0;
 }
 
+/* ------------------------------------------------------------------ Dateien (#14) + Spielstaende (#3) */
+
+static char g_ferr[256];
+
+static int return_malloced(void *L, char *s, size_t len)
+{
+    if (!s) { push_nil(L); return 1; }
+    ensure_resolved();
+    return_string(L, s, len);
+    free(s);
+    return 1;
+}
+
+/* pc2mp_write_file(name, data) -> 1 | 0   (data\<name>, atomar, max. 16 MB) */
+EXPORT int pc2mp_write_file(void *L)
+{
+    GUARD_TRY {
+        const char *n, *d; size_t nl, dl;
+        int ok = arg_string(L, 1, &n, &nl) && arg_string(L, 2, &d, &dl) && files_write_data(n, nl, d, dl, g_ferr, sizeof(g_ferr));
+        if (!ok) { char b[320]; snprintf(b, sizeof(b), "[native] write_file: %s", g_ferr); log_str(b); }
+        push_int(L, ok);
+        return 1;
+    } GUARD_CATCH { log_str("[native] pc2mp_write_file: Exception"); }
+    return 0;
+}
+
+/* pc2mp_read_file(name) -> String | nil */
+EXPORT int pc2mp_read_file(void *L)
+{
+    GUARD_TRY {
+        const char *n; size_t nl, len = 0;
+        char *s = arg_string(L, 1, &n, &nl) ? files_read_data(n, nl, &len) : NULL;
+        return return_malloced(L, s, len);
+    } GUARD_CATCH { log_str("[native] pc2mp_read_file: Exception"); }
+    return 0;
+}
+
+/* pc2mp_saves_dir() -> Pfad des Saves-Ordners | nil */
+EXPORT int pc2mp_saves_dir(void *L)
+{
+    GUARD_TRY {
+        char d[MAX_PATH];
+        if (!files_saves_dir(d, sizeof(d))) { push_nil(L); return 1; }
+        ensure_resolved();
+        return return_string(L, d, strlen(d));
+    } GUARD_CATCH { log_str("[native] pc2mp_saves_dir: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_list() -> JSON [{"name","size","mtime"}] (.park2, neueste zuerst) | nil */
+EXPORT int pc2mp_save_list(void *L)
+{
+    GUARD_TRY {
+        size_t len = 0;
+        return return_malloced(L, files_save_list_json(&len), len);
+    } GUARD_CATCH { log_str("[native] pc2mp_save_list: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_info(name) -> JSON {"name","size","sha256","chunks","chunkSize"} | nil */
+EXPORT int pc2mp_save_info(void *L)
+{
+    GUARD_TRY {
+        const char *n; size_t nl, len = 0;
+        return return_malloced(L, arg_string(L, 1, &n, &nl) ? files_save_info_json(n, nl, &len) : NULL, len);
+    } GUARD_CATCH { log_str("[native] pc2mp_save_info: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_read_chunk(name, i) -> base64 von Chunk i (0-basiert, 512 KiB roh) | nil */
+EXPORT int pc2mp_save_read_chunk(void *L)
+{
+    GUARD_TRY {
+        const char *n; size_t nl, len = 0; long long i = -1;
+        int ok = arg_string(L, 1, &n, &nl) && arg_int(L, 2, &i);
+        return return_malloced(L, ok ? files_save_read_chunk_b64(n, nl, i, &len) : NULL, len);
+    } GUARD_CATCH { log_str("[native] pc2mp_save_read_chunk: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_write_chunk(name, i, base64) -> 1 | 0   (in data\incoming_<name>.part) */
+EXPORT int pc2mp_save_write_chunk(void *L)
+{
+    GUARD_TRY {
+        const char *n, *b; size_t nl, bl; long long i = -1;
+        int ok = arg_string(L, 1, &n, &nl) && arg_int(L, 2, &i) && arg_string(L, 3, &b, &bl) &&
+                 files_save_write_chunk_b64(n, nl, i, b, bl, g_ferr, sizeof(g_ferr));
+        if (!ok) { char m[320]; snprintf(m, sizeof(m), "[native] save_write_chunk: %s", g_ferr); log_str(m); }
+        push_int(L, ok);
+        return 1;
+    } GUARD_CATCH { log_str("[native] pc2mp_save_write_chunk: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_finish(name, sha256hex) -> 1 | 0 ; prueft Hash, verschiebt nach Saves (nie ueberschreiben) */
+EXPORT int pc2mp_save_finish(void *L)
+{
+    GUARD_TRY {
+        const char *n, *h; size_t nl, hl;
+        int ok = arg_string(L, 1, &n, &nl) && arg_string(L, 2, &h, &hl) && files_save_finish(n, nl, h, hl, g_ferr, sizeof(g_ferr));
+        { char m[320]; snprintf(m, sizeof(m), "[native] save_finish(%.*s) -> %d %s", ok ? (int)nl : 0, ok ? n : "", ok, ok ? "" : g_ferr); log_str(m); }
+        push_int(L, ok);
+        return 1;
+    } GUARD_CATCH { log_str("[native] pc2mp_save_finish: Exception"); }
+    return 0;
+}
+
+/* pc2mp_save_abort(name) -> verwirft eine halb empfangene Datei */
+EXPORT int pc2mp_save_abort(void *L)
+{
+    GUARD_TRY {
+        const char *n; size_t nl;
+        if (arg_string(L, 1, &n, &nl)) files_save_abort(n, nl);
+    } GUARD_CATCH { log_str("[native] pc2mp_save_abort: Exception"); }
+    return 0;
+}
+
+/* pc2mp_file_error() -> letzter Fehlertext der Dateifunktionen | nil */
+EXPORT int pc2mp_file_error(void *L)
+{
+    GUARD_TRY {
+        if (!g_ferr[0]) { push_nil(L); return 1; }
+        ensure_resolved();
+        return return_string(L, g_ferr, strlen(g_ferr));
+    } GUARD_CATCH { log_str("[native] pc2mp_file_error: Exception"); }
+    return 0;
+}
+
 #ifdef PC2MP_TEST
 /* Nur im Test-Build: Fake-luaS_newlstr einsetzen (NULL = Chunk-Fallback testen). */
 EXPORT void pc2mp_test_set_newlstr(luaS_newlstr_fn f)
@@ -470,6 +605,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         GetModuleFileNameA(hinst, g_dir, MAX_PATH);
         slash = strrchr(g_dir, '\\');
         if (slash) slash[1] = '\0';
+        files_init(g_dir);
         log_str("==== [native] PC2MPNative.dll geladen (package.loadlib funktioniert) ====");
     } else if (reason == DLL_PROCESS_DETACH) {
         if (g_log) { fclose(g_log); g_log = NULL; }
