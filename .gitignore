@@ -1,0 +1,20 @@
+# Spielcode / Spieldateien NIEMALS committen (Frontier-Eigentum, Repo ist öffentlich)
+gamelua/
+*.ovl
+*.ovs
+*.lua.bin
+
+# Lokale Tools (jeder installiert selbst, siehe README)
+tools/cobra-tools/
+
+# Logs, Python, Build
+*.log
+extract_log.txt
+__pycache__/
+.venv/
+build/
+out/
+*.obj
+*.pdb
+*.ilk
+.vs/
