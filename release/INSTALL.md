@@ -20,7 +20,7 @@ lokale Spiegel-Test (Zwilling 5 m daneben).
 3. Spieler B lädt ihn herunter (landet direkt im eigenen Saves-Ordner):
    `python server/save_tool.py download --host <server-ip>`
 4. Beide laden **diesen** Spielstand. Ab dann wird gebaut und synchronisiert.
-Bestehende Parks später weiterspielen kommt mit #14.
+**Weiterspielen (ab v0.3):** Einfach im Spiel speichern. Die Zuordnungen der Objekte stecken im Park-Spielstand, und beim nächsten Laden holt die Mod nur verpasste Aktionen nach (kein doppeltes Bauen).
 - Synchronisiert: Szenerie-Objekte platzieren, verschieben, drehen, skalieren, löschen.
 - **Strg+Z / Strg+Y** machen nur **deine eigenen** Aktionen rückgängig, und das bei allen.
 - Noch nicht synchronisiert: Wege, Terrain, Fahrgeschäfte, Achterbahnen, Geld, Gäste.

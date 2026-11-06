@@ -74,8 +74,6 @@ local function Emit(tAction)
     end
 end
 
--- Wird vom Manager gesetzt: function() -> true, wenn eigene Replay-Jobs laufen
-Events.fnIsSuppressing = nil
 -- PartIDs, die der Spieler selbst erzeugt/geändert hat (dürfen nie unterdrückt werden)
 Events.tKnownOriginals = {}
 
@@ -107,8 +105,15 @@ Events.nGateFrames = 90
 Events.nLastUserCommitFrame = -100000
 Events.nGateDropped = 0
 
+-- Vom Manager gesetzt: true, wenn der aktuelle Code in der Coroutine unseres Replay-Jobs läuft
+Events.fnIsReplayCoroutine = function() return false end
+-- Vom Manager gesetzt: ClaimOwnPart(nPartID, tDesc) -> true, wenn das Teil zu einem laufenden
+-- Replay-Create passt (Ressource + Position); HasOpenCreate() -> ein Create wartet noch auf seine PartID
+Events.fnClaimOwnPart = function() return false end
+Events.fnHasOpenCreate = function() return false end
+
 function Events.OnCommitPreview()
-    if Events.fnIsSuppressing and Events.fnIsSuppressing() then return end -- eigenes Replay
+    if Events.fnIsReplayCoroutine() then return end -- Commit unseres eigenen Replays
     Events.nLastUserCommitFrame = Events.fnNow()
 end
 
@@ -140,10 +145,39 @@ function Events.IsUserCommitWindow()
     return (Events.fnNow() - Events.nLastUserCommitFrame) <= Events.nGateFrames
 end
 
-function Events.HandlePart(nPartID, nTry)
+local function Defer(nPartID, nTry, bGateOk)
+    if (nTry or 0) < 60 then
+        table.insert(Events.tDeferred, { nPartID = nPartID, nTry = (nTry or 0) + 1, nWait = 5, bGateOk = bGateOk })
+        return true
+    end
+    return false
+end
+
+-- nTry: 0 = frisch aus der Message; bGateOk: Ergebnis des Commit-Gates beim ersten Eintreffen
+function Events.HandlePart(nPartID, nTry, bGateOk)
     if Events.IsIgnored(nPartID) then return end
-    -- Erster Versuch: nur im Fenster nach einem Spieler-Commit (Wiederholungen sind schon akzeptiert)
-    if (nTry or 0) == 0 and not Events.tKnownOriginals[nPartID] and not Events.IsUserCommitWindow() then
+    local bKnown = Events.tKnownOriginals[nPartID]
+    if (nTry or 0) == 0 then
+        bGateOk = bKnown or Events.IsUserCommitWindow()
+    end
+    local d = Events.DescribePart(nPartID)
+
+    -- 1. Gehört das Teil zu einem unserer Replay-Creates? (Ressource + Position, kein Zeitfenster)
+    if d.exists and not bKnown then
+        if d.pos ~= nil and d.resource ~= nil then
+            if Events.fnClaimOwnPart(nPartID, d) then
+                Events.IgnoreFor(nPartID, 120)
+                if Events.fnOnOwnPart then pcall(Events.fnOnOwnPart, nPartID) end
+                return
+            end
+        elseif Events.fnHasOpenCreate() then
+            Defer(nPartID, nTry, bGateOk) -- noch nicht beschreibbar, könnte unser Create sein
+            return
+        end
+    end
+
+    -- 2. Commit-Gate: ohne Spieler-Commit (z. B. Park-Laden) ignorieren
+    if not bGateOk then
         Events.nGateDropped = Events.nGateDropped + 1
         if Events.nGateDropped <= 3 or Events.nGateDropped % 500 == 0 then
             Log.Write("Events: Teil " .. tostring(nPartID) .. " ohne Spieler-Commit ignoriert (gesamt "
@@ -151,25 +185,17 @@ function Events.HandlePart(nPartID, nTry)
         end
         return
     end
-    if not Events.tKnownOriginals[nPartID] and Events.fnIsSuppressing and Events.fnIsSuppressing() then
-        Log.Write("Events: Teil " .. tostring(nPartID) .. " während Replay -> als eigenes ignoriert")
-        Events.IgnoreFor(nPartID, 30)
-        -- Dem laufenden Replay-Job melden (so erfährt ein Create-Job die neue PartID)
-        if Events.fnOnOwnPart then pcall(Events.fnOnOwnPart, nPartID) end
-        return
-    end
-    Events.tKnownOriginals[nPartID] = true
-    local d = Events.DescribePart(nPartID)
+
+    -- 3. Spieler-Aktion
     if not d.exists then
+        Events.tKnownOriginals[nPartID] = nil
         Emit({ op = "remove", partID = nPartID })
     elseif d.pos == nil or d.resource == nil then
-        -- z. B. nach Undo: Entity existiert noch nicht -> in ein paar Frames erneut
-        if (nTry or 0) < 60 then
-            table.insert(Events.tDeferred, { nPartID = nPartID, nTry = (nTry or 0) + 1, nWait = 5 })
-        else
+        if not Defer(nPartID, nTry, bGateOk) then
             Log.Write("Events: Teil " .. tostring(nPartID) .. " bleibt unvollständig: " .. Log.ToStr(d))
         end
     else
+        Events.tKnownOriginals[nPartID] = true
         Emit({ op = "upsert", partID = nPartID, resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale })
     end
 end
@@ -181,7 +207,7 @@ function Events.Tick()
     for _, t in ipairs(tNow) do
         t.nWait = t.nWait - 1
         if t.nWait <= 0 then
-            Events.HandlePart(t.nPartID, t.nTry)
+            Events.HandlePart(t.nPartID, t.nTry, t.bGateOk)
         else
             table.insert(Events.tDeferred, t)
         end

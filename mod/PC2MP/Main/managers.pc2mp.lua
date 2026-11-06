@@ -24,6 +24,12 @@ local PC2MPManager = module(..., Mutators.Manager())
 
 function PC2MPManager.Init(self, _tProperties, _tEnvironment)
     Log.Write("Manager Init")
+    -- Vor dem Laden des Spielstands registrieren, damit unsere Zuordnungen mitgeladen werden (#14)
+    local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)
+    if ok and tWorldAPIs then
+        local okP, errP = pcall(Sync.RegisterPersist, tWorldAPIs)
+        if not okP then Log.Write("RegisterPersist Fehler: " .. tostring(errP)) end
+    end
 end
 
 function PC2MPManager.Activate(self)
@@ -37,7 +43,9 @@ function PC2MPManager.Activate(self)
     local okG, errG = pcall(UndoGuard.Install)
     if not okG then Log.Write("UndoGuard Fehler: " .. tostring(errG)) end
     Replay.Init(tWorldAPIs)
-    Events.fnIsSuppressing = Replay.IsSuppressing
+    Events.fnIsReplayCoroutine = Replay.IsReplayCoroutine
+    Events.fnClaimOwnPart = Replay.ClaimOwnPart
+    Events.fnHasOpenCreate = Replay.HasOpenCreate
     Events.fnOnOwnPart = Replay.OnOwnPart
     Events.fnNow = function() return Replay.nFrame end
     Events.tListeners = {}

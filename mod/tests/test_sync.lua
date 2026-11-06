@@ -10,6 +10,7 @@ end
 local sent = {}
 local inbox = {}
 local log = {}
+local world = {}   -- partID -> state (Spielwelt-Mock)
 api = {
     pc2mp = nil,
     json = {
@@ -29,7 +30,8 @@ package.preload["pc2mp.net"] = function()
     function N.SetHello(m) N.hello = m; return true end
     function N.ReadConfig() return { host = "127.0.0.1", port = 7790, name = "Test", park = "p" } end
     function N.Info() return "mock" end
-    function N.Connect() return true end
+    function N.Connect() N.nConnects = (N.nConnects or 0) + 1; return true end
+    function N.Disconnect() end
     function N.Status() return "connected", 0, 0, 1 end
     function N.LastError() return nil end
     function N.Pump(fn) while #inbox > 0 do fn(table.remove(inbox, 1)) end end
@@ -38,13 +40,15 @@ end
 local ignored = {}
 local listeners = {}
 package.preload["pc2mp.events"] = function()
-    local E = { tListeners = listeners }
+    local E = { tListeners = listeners, tKnownOriginals = {} }
+    function E.DescribePart(n) local s = world[n]; if not s then return { exists = false } end
+        return { exists = true, resource = s.resource, pos = s.pos, rot = s.rot, scale = s.scale } end
     function E.IgnoreFor(n, f) ignored[n] = true end
     function E.AddListener(fn) listeners[#listeners + 1] = fn end
     return E
 end
 local nextPart = 1000
-local world = {}   -- partID -> state
+
 local replayLog = {}
 package.preload["pc2mp.replay"] = function()
     local R = {}
@@ -68,6 +72,11 @@ preload("pc2mp.sync")
 
 local Sync = require("pc2mp.sync")
 assert(Sync.Start(), "Start fehlgeschlagen")
+local Net = require("pc2mp.net")
+for _ = 1, 29 do Sync.Tick() end
+assert(not Net.nConnects, "darf erst nach Wartezeit verbinden")
+Sync.Tick()
+assert(Net.nConnects == 1, "nach 30 Frames verbunden")
 local function local_action(t)
     -- der Spieler hat das im Spiel gebaut/geändert/gelöscht -> Spielwelt nachführen
     if t.op == "upsert" then world[t.partID] = t else world[t.partID] = nil end
@@ -137,5 +146,22 @@ local n = #sent
 inbox[#inbox + 1] = { t = "ids", seq = 9, map = { { localId = 50, netId = "n9" } } }
 Sync.Tick()
 check(#sent == n + 1 and sent[#sent].action.op == "remove" and sent[#sent].action.netId == "n9", "vor ids gelöschtes Objekt wird nach ids gelöscht")
+
+-- ---------------------------------------------------------------- 5. Persistenz
+local st = Sync.GetPersistState()
+check(st.map["n2"] ~= nil and st.lastSeq == api.pc2mp.nLastSeq, "GetPersistState enthält netId -> partID und lastSeq")
+-- Neustart simulieren: Park geladen, IDs umnummeriert (n2 jetzt partID 7777)
+world[7777] = { resource = "Rock", pos = { 3, 3, 3 }, rot = { 0, 0, 0 }, scale = 2 }
+Sync.Start()
+Sync.OnPersistLoaded({ lastSeq = 42, map = { n2 = 7777 } })
+check(api.pc2mp.nLastSeq == 42, "lastSeq aus Spielstand übernommen")
+for _ = 1, 30 do Sync.Tick() end
+check(Net.hello.lastSeq == 42, "hello nach Neustart mit lastSeq aus Spielstand")
+inbox[#inbox + 1] = { t = "action", seq = 43, clientId = "c9", action = { op = "upsert", netId = "n2", origin = "other",
+    pos = { 4, 4, 4 }, rot = { 0, 0, 0 }, scale = 2 } }
+local nWorld = 0; for _ in pairs(world) do nWorld = nWorld + 1 end
+Sync.Tick()
+local nWorld2 = 0; for _ in pairs(world) do nWorld2 = nWorld2 + 1 end
+check(world[7777].pos[1] == 4 and nWorld == nWorld2, "Remote-Änderung trifft das geladene Teil (kein Duplikat)")
 
 print("\nALLE SYNC-TESTS OK")

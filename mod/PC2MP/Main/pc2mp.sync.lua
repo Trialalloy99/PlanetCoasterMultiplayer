@@ -257,24 +257,80 @@ function Sync.Start()
     end
     Sync.tConfig = tCfg
     Log.Write("Sync: " .. Net.Info())
-    -- Neuer Park/Environment: Zuordnungen gelten nicht mehr -> alles vom Server neu holen
-    -- (TODO #14: Mapping persistieren, sonst wird in bestehenden Parks doppelt gebaut)
+    -- Neuer Park/Environment: Zuordnungen kommen (falls vorhanden) aus dem Spielstand (pc2mp.persist),
+    -- sonst gilt: alles ab Seq 0 vom Server holen (frischer Start-Spielstand).
     api.pc2mp.nLastSeq = 0
     Sync.tByPart, Sync.tByNet, Sync.tPendingLocal, Sync.tUndo, Sync.tRedo = {}, {}, {}, {}, {}
-    Sync.UpdateHello()
-    local nPort = global.math.tointeger(tCfg.port or 7790) or 7790
-    Net.Connect(tCfg.host, nPort)
+    Sync.nPort = global.math.tointeger(tCfg.port or 7790) or 7790
+    -- Verbinden erst, wenn die Zuordnungen aus dem Spielstand übernommen sind (sonst doppelter Catch-up)
+    Sync.bWaitConnect = true
+    Sync.nWaitFrames = 0
     Events.AddListener(Sync.OnLocalAction)
     Sync.bActive = true
     api.pc2mp.Sync = Sync -- für den Undo-Hook (läuft in einem anderen Modul-Kontext)
-    Log.Write("Sync: Multiplayer aktiv, Server " .. tostring(tCfg.host) .. ":" .. tostring(nPort)
+    Log.Write("Sync: Multiplayer aktiv, Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
         .. ", Instanz " .. Sync.sInstance)
     return true
+end
+
+---------------------------------------------------------------------
+-- Persistenz (Zuordnung netId -> Teil reist im Park-Spielstand mit, pc2mp.persist / #14)
+---------------------------------------------------------------------
+function Sync.GetPersistState()
+    local tMap = {}
+    for sNet, H in pairs(Sync.tByNet) do
+        if H.partID ~= nil then tMap[sNet] = H.partID end
+    end
+    return { lastSeq = api.pc2mp.nLastSeq, map = tMap }
+end
+
+function Sync.OnPersistLoaded(t)
+    local n = 0
+    for sNet, nPart in pairs(t.map or {}) do
+        local H = { netId = sNet, partID = nPart }
+        local okD, d = pcall(Events.DescribePart, nPart)
+        if okD and d and d.exists then
+            H.state = { resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale }
+        end
+        Sync.tByNet[sNet] = H
+        Sync.tByPart[nPart] = H
+        Events.tKnownOriginals[nPart] = true
+        n = n + 1
+    end
+    api.pc2mp.nLastSeq = t.lastSeq or 0
+    Log.Write("Sync: " .. n .. " Zuordnungen aus dem Spielstand übernommen, weiter ab Seq " .. tostring(api.pc2mp.nLastSeq))
+end
+
+function Sync.RegisterPersist(tWorldAPIs)
+    local okP, Persist = pcall(require, "pc2mp.persist")
+    if not okP then
+        Log.Write("Sync: pc2mp.persist fehlt: " .. tostring(Persist))
+        return
+    end
+    Sync.Persist = Persist
+    Persist.RegisterSaveClient(tWorldAPIs, Sync.GetPersistState, Sync.OnPersistLoaded)
 end
 
 Sync.nLastStatusLog = ""
 function Sync.Tick()
     if not Sync.bActive then return end
+    if Sync.bWaitConnect then
+        Sync.nWaitFrames = Sync.nWaitFrames + 1
+        local bResolved = true
+        if Sync.Persist then
+            local ok, b = pcall(Sync.Persist.ResolveLoaded)
+            bResolved = (not ok) or b
+        end
+        if bResolved and Sync.nWaitFrames >= 30 then
+            Sync.bWaitConnect = false
+            Sync.UpdateHello()
+            -- Die DLL hält die Verbindung über Park-Wechsel hinweg; neu verbinden, damit hello (lastSeq) neu geht
+            Net.Disconnect()
+            Net.Connect(Sync.tConfig.host, Sync.nPort)
+            Log.Write("Sync: verbinde (lastSeq " .. tostring(api.pc2mp.nLastSeq) .. ")")
+        end
+        return
+    end
     Net.Pump(Sync.OnMessage, 32)
     local sStatus, _, _, nConn = Net.Status()
     local sKey = sStatus .. "/" .. tostring(nConn)

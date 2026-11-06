@@ -99,6 +99,8 @@ end
 -- Erstellt ein neues Teil. Gibt die neue PartID zurück (oder nil).
 -- fnBeforeCommit(nNewID) wird vor dem Commit aufgerufen (Echo-Schutz).
 function Replay.DoCreate(tAction, fnBeforeCommit)
+    -- Erwartetes Ergebnis merken: Events erkennt das neue Teil daran (Ressource + Position)
+    if Replay.tCurrent then Replay.tCurrent.tExpect = tAction end
     local editors = Replay.tWorldAPIs.editors
     local clh = editors:CreateUndoOperationsHierarchy()
     local token = api.entity.CreateRequestCompletionToken()
@@ -234,6 +236,41 @@ function Replay.OnOwnPart(nPartID)
     tJob.tNewPartIDs = tJob.tNewPartIDs or {}
     table.insert(tJob.tNewPartIDs, nPartID)
     if tJob ~= Replay.tCurrent and tJob.fnLatePart then pcall(tJob.fnLatePart, nPartID) end
+end
+
+-- Läuft der aufrufende Code in der Coroutine des aktuellen Replay-Jobs?
+function Replay.IsReplayCoroutine()
+    return Replay.tCurrent ~= nil and Replay.tCurrent.co ~= nil and coroutine.running() == Replay.tCurrent.co
+end
+
+local function SameResource(a, b)
+    return type(a) == "string" and type(b) == "string" and global.string.lower(a) == global.string.lower(b)
+end
+
+-- Gehört ein frisch festgeschriebenes Teil zu einem unserer Creates? (laufender Job oder der
+-- letzte, falls die Message erst knapp nach Jobende kommt). Abgleich über Ressource + Position.
+function Replay.ClaimOwnPart(nPartID, d)
+    for _, tJob in global.ipairs({ Replay.tCurrent or false, Replay.tLastJob or false }) do
+        local e = tJob and tJob.tExpect
+        if e and not tJob.bClaimed and e.pos and d.pos and SameResource(e.resource, d.resource) then
+            local dx, dy, dz = d.pos[1] - e.pos[1], d.pos[2] - e.pos[2], d.pos[3] - e.pos[3]
+            if dx * dx + dy * dy + dz * dz < 1.0 then
+                local bLate = tJob ~= Replay.tCurrent
+                if bLate and (Replay.nFrame - (Replay.nLastJobEndFrame or 0)) > 60 then return false end
+                tJob.bClaimed = true
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Wartet ein Create noch auf seine PartID?
+function Replay.HasOpenCreate()
+    local c, l = Replay.tCurrent, Replay.tLastJob
+    if c and c.tExpect and not c.bClaimed then return true end
+    if l and l.tExpect and not l.bClaimed and (Replay.nFrame - (Replay.nLastJobEndFrame or 0)) <= 60 then return true end
+    return false
 end
 
 -- Erste neue PartID des laufenden Jobs (innerhalb einer Job-Funktion aufrufen)
