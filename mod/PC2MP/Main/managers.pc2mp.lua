@@ -32,6 +32,7 @@ function PC2MPManager.Activate(self)
     end
     Replay.Init(tWorldAPIs)
     Events.fnIsSuppressing = Replay.IsSuppressing
+    Events.fnOnOwnPart = Replay.OnOwnPart
     local ok3, err3 = pcall(Events.Register, tWorldAPIs)
     if not ok3 then Log.Write("Events.Register Fehler: " .. tostring(err3)) end
     Events.AddListener(Mirror.OnAction)

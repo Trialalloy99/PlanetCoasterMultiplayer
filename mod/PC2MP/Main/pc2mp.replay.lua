@@ -95,7 +95,17 @@ function Replay.DoCreate(tAction, fnBeforeCommit)
         pcall(clh.SetCashPos, clh, Vector3:new(tAction.pos[1], tAction.pos[2], tAction.pos[3]))
     end
     local bOk = PreviewAndCommit(clh)
-    return bOk and (okId and nNewID or nil) or nil, bOk
+    if not (okId and nNewID) then nNewID = nil end
+    -- Fallback: PartID kommt über PlacementPartCommittedMessage (wenige Frames nach dem Commit)
+    local nWait = 0
+    while bOk and nNewID == nil and nWait < 30 do
+        nNewID = Replay.CurrentNewPartID()
+        if nNewID == nil then
+            Yield()
+            nWait = nWait + 1
+        end
+    end
+    return bOk and nNewID or nil, bOk
 end
 
 function Replay.DoEdit(nPartID, tAction)
@@ -159,11 +169,28 @@ function Replay.Tick()
             Log.Write("Replay: Timeout in " .. tJob.sLabel)
         end
         Replay.tCurrent = nil
+        Replay.tLastJob = tJob
         Replay.nLastJobEndFrame = Replay.nFrame
         Log.Write("Replay: fertig " .. tJob.sLabel .. " ok=" .. tostring(ok) .. " -> " .. Log.Args(r1, r2)
             .. " (" .. tJob.nFrames .. " Frames)")
         if tJob.fnDone then pcall(tJob.fnDone, ok and bDead, r1, r2) end
     end
+end
+
+-- Von Events aufgerufen: ein Teil wurde während eines eigenen Jobs festgeschrieben.
+-- Gehört zum laufenden Job, oder (wenn das Event erst knapp nach Jobende kommt) zum letzten.
+function Replay.OnOwnPart(nPartID)
+    local tJob = Replay.tCurrent or Replay.tLastJob
+    if tJob == nil then return end
+    tJob.tNewPartIDs = tJob.tNewPartIDs or {}
+    table.insert(tJob.tNewPartIDs, nPartID)
+    if tJob ~= Replay.tCurrent and tJob.fnLatePart then pcall(tJob.fnLatePart, nPartID) end
+end
+
+-- Erste neue PartID des laufenden Jobs (innerhalb einer Job-Funktion aufrufen)
+function Replay.CurrentNewPartID()
+    local t = Replay.tCurrent and Replay.tCurrent.tNewPartIDs
+    return t and t[1] or nil
 end
 
 function Replay.IsBusy()

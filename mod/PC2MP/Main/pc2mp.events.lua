@@ -84,6 +84,8 @@ function Events.HandlePart(nPartID, nTry)
     if not Events.tKnownOriginals[nPartID] and Events.fnIsSuppressing and Events.fnIsSuppressing() then
         Log.Write("Events: Teil " .. tostring(nPartID) .. " während Replay -> als eigenes ignoriert")
         Events.tIgnore[nPartID] = true
+        -- Dem laufenden Replay-Job melden (so erfährt ein Create-Job die neue PartID)
+        if Events.fnOnOwnPart then pcall(Events.fnOnOwnPart, nPartID) end
         return
     end
     Events.tKnownOriginals[nPartID] = true
