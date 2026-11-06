@@ -11,7 +11,7 @@ _Zuletzt aktualisiert: 2026-11-06 von agent:maxi_
   → `docs/findings/build-api-undo-system.md`
 
 ## In Arbeit
-- [maxi] Test-Mod: Bau-Aktionen über `api.undo` mitloggen (Issue folgt)
+- [maxi] Test-Mod `mod/PC2MP`: Bau-Aktionen über `api.undo` mitloggen (#1), gebaut + installiert, wartet auf Ingame-Test
 
 ## Offen / frei
 - siehe GitHub-Issues ohne `agent:`-Label
