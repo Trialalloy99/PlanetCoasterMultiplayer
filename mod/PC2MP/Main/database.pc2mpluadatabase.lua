@@ -38,8 +38,6 @@ function LuaDB.Init()
     local Log = require("pc2mp.log")
     local ok, err = pcall(Diagnose, Log)
     if not ok then Log.Write("Diagnose Fehler: " .. tostring(err)) end
-    local ok2, err2 = pcall(function() require("pc2mp.undohooks").WrapUndoAPI() end)
-    if not ok2 then Log.Write("WrapUndoAPI Fehler: " .. tostring(err2)) end
 end
 
 -- Unseren Manager im Park-Environment registrieren (wie ProTrack).

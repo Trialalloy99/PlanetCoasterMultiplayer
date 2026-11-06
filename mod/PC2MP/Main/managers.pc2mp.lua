@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --/  PC2MP Park-Manager: läuft im Park (CPTEnvironment).
---/  Holt die World-APIs und installiert die Editor-Hooks.
+--/  Holt die World-APIs und installiert die Capture-Hooks.
 -----------------------------------------------------------------------
 local global = _G
 local api = global.api
@@ -12,7 +12,7 @@ local module = global.module
 
 local Mutators = require("Environment.ModuleMutators")
 local Log = require("pc2mp.log")
-local UndoHooks = require("pc2mp.undohooks")
+local Capture = require("pc2mp.capture")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -22,14 +22,13 @@ end
 
 function PC2MPManager.Activate(self)
     Log.Write("Manager Activate")
-    UndoHooks.WrapUndoAPI()
     local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)
-    if ok then
-        local ok2, err = pcall(UndoHooks.InspectEditorsAPI, tWorldAPIs)
-        if not ok2 then Log.Write("InspectEditorsAPI Fehler: " .. tostring(err)) end
-    else
+    if not ok then
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
+        return
     end
+    local ok2, err = pcall(Capture.Install, tWorldAPIs)
+    if not ok2 then Log.Write("Capture.Install Fehler: " .. tostring(err)) end
 end
 
 function PC2MPManager.Advance(self, _nDeltaTime)
