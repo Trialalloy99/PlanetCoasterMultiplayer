@@ -36,4 +36,6 @@ StartEditingParts_Scenery, __eq, __gc
 **Offen: Crash beim Beenden**
 - Beide Tests crashen beim Beenden an **derselben Adresse** `PlanetCoaster2.exe+0x14fdf62` (Null-Read @0x10),
   NACH `Manager Shutdown`. Bauen etc. funktioniert normal.
-- Bisect läuft: Test 3 nur mit ACSE + ForgeUtils (ohne PC2MP).
+- Test 3 nur mit ACSE + ForgeUtils (ohne PC2MP): **crasht ebenfalls** → nicht unsere Mod.
+  Entscheidung: ignorieren (Speichern funktioniert, Crash erst beim Beenden).
+- Folge: Das Wrappen nativer Metatables war vermutlich NICHT schuld → darf wieder genutzt werden.

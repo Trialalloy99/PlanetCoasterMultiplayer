@@ -3,15 +3,19 @@
 _Zuletzt aktualisiert: 2026-11-06 von agent:maxi_
 
 ## Erledigt
-- [maxi] Lua-Weg bestätigt: PC2 hat Lua 5.3 in der Exe, `package.loadlib` vorhanden → native DLL ladbar.
-- [maxi] ACSE 0.729 (PC2) + ForgeUtils v2.8.0 bei Maxi installiert.
-- [maxi] Alle ~2000 OVLs entpackt, ~21.000 Lua-Dateien dekompiliert (lokal, nicht im Repo).
-  Skript: `tools/scripts/extract_all_lua.py`, Anleitung in `tools/README.md`.
-- [maxi] **Zentrale Bau-API gefunden:** alle Bau-Aktionen laufen über `api.undo` + UndoOperationsHierarchy
-  → `docs/findings/build-api-undo-system.md`
+- [maxi] Lua-Weg bestätigt, ACSE 0.729 (PC2) + ForgeUtils v2.8.0 installiert.
+- [maxi] Alle OVLs entpackt, ~21.000 Lua-Dateien dekompiliert (lokal). Skript: `tools/scripts/extract_all_lua.py`.
+- [maxi] Zentrale Bau-API: `api.undo` + UndoOperationsHierarchy → `docs/findings/build-api-undo-system.md`
+- [maxi] **Native Brücke funktioniert im Spiel:** `PC2MPNative.dll` per `package.loadlib`, Strings Lua→C ✔,
+  Integer C→Lua ✔ → `docs/findings/lua-environment.md`, `docs/findings/ingame-test-2026-11-06.md`
+- [maxi] Bau-Ablauf geloggt (Preview/Cancel/CommitPreview/Checkpoint/Undo) + vollständige Methodenliste der Hierarchy.
+- Crash beim Beenden kommt von ACSE/ForgeUtils, nicht von uns → ignoriert.
 
-## In Arbeit
-- [maxi] Test-Mod `mod/PC2MP` + native DLL (#1, #4): 1. Test = kein Log, Crash beim Beenden; 2. Version mit DLL-Logging wartet auf Ingame-Test
+## Nächste Schritte (siehe Issues)
+1. Aktionen serialisierbar machen (Hierarchy- und Edit-Objekt-Aufrufe mitschreiben)
+2. Replay-Test: Objekt per Code platzieren
+3. Rückkanal DLL→Lua für Strings + Netzwerk-Thread in der DLL
+4. Relay-Server + Persistenz
 
 ## Offen / frei
 - siehe GitHub-Issues ohne `agent:`-Label
