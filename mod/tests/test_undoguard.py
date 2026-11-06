@@ -3,7 +3,7 @@
 Mockt api.undo so, wie sich das Spiel verhält: IsOperationComplete(nil) "stürzt ab"
 (Lua-Fehler statt Access Violation), Operationen brauchen ein paar Frames.
 Prüft: nil-Schutz, Tracking von Spiel-Operationen, IsBusy-Sperre nur für den Replay-Job.
-usage: python mod/test/test_undoguard.py
+usage: python mod/tests/test_undoguard.py
 """
 import os
 import sys
