@@ -16,6 +16,7 @@ local Log = require("pc2mp.log")
 local Events = require("pc2mp.events")
 local Replay = require("pc2mp.replay")
 local Mirror = require("pc2mp.mirror")
+local UndoGuard = require("pc2mp.undoguard")
 local Sync = require("pc2mp.sync")
 local UndoHook = require("pc2mp.undohook")
 
@@ -32,6 +33,9 @@ function PC2MPManager.Activate(self)
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
         return
     end
+    -- Vor allem anderen: schützt api.undo vor nil/gleichzeitigen Operationen (nativer Crash, siehe pc2mp.undoguard)
+    local okG, errG = pcall(UndoGuard.Install)
+    if not okG then Log.Write("UndoGuard Fehler: " .. tostring(errG)) end
     Replay.Init(tWorldAPIs)
     Events.fnIsSuppressing = Replay.IsSuppressing
     Events.fnOnOwnPart = Replay.OnOwnPart
