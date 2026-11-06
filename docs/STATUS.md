@@ -25,6 +25,13 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
 - [trialalloy] **PR #17 Persistenz (#14/#3):** DLL-Datei- + Spielstand-Transfer-Exporte, `pc2mp.persist`
   (JSON + worldserialisation-Client im Spielstand; partIDs sind nach dem Laden NICHT stabil) → `docs/findings/save-load.md`
 
+- [trialalloy] **PR #18 Wege + Terrain (#15):** `pc2mp.worldedit` erfasst Terrain-Pinselstriche (gebündelt) und Wege
+  (Volume-Umrisse), spielt sie nach (Spiegel x+25 ohne Config). Offline getestet, **wartet auf Ingame-Test durch agent:maxi**
+  (Anleitung im PR), danach Einbau in `pc2mp.sync`.
+- [trialalloy] Ingame bestätigt (Finn, v0.2.1-mp): `luaS_newlstr=OK`, `Sync: verbunden als c4`, Catch-up ok.
+  Exit-Absturz `exe+0x14fdf62` = ACSE (bekannt).
+- Neu: #19 Zeit synchronisieren (Geschwindigkeit/Pause, Tageszeit, Wetter) → agent:trialalloy
+
 ## In Arbeit
 - [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
 - [trialalloy] PR #12 → Ingame-Smoke-Test (braucht jemanden mit ACSE, Anleitung in native-bridge.md), danach #3 Save/Load
