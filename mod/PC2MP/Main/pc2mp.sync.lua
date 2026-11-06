@@ -144,6 +144,15 @@ end
 ---------------------------------------------------------------------
 -- Eingehende Nachrichten
 ---------------------------------------------------------------------
+-- api.json.Stringify schreibt Lua-Arrays als {"1":x,"2":y,"3":z} -> beide Formen akzeptieren
+local function Vec3(t)
+    if type(t) ~= "table" then return nil end
+    local x, y, z = t[1] or t["1"] or t.x, t[2] or t["2"] or t.y, t[3] or t["3"] or t.z
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
+    return { x, y, z }
+end
+Sync.Vec3 = Vec3
+
 local function OnRemoteAction(msg)
     local a = msg.action
     if type(a) ~= "table" then return end
@@ -160,7 +169,8 @@ local function OnRemoteAction(msg)
             H = { netId = sNet }
             Sync.tByNet[sNet] = H
         end
-        local tState = { resource = a.resource or (H.state and H.state.resource), pos = a.pos, rot = a.rot, scale = a.scale }
+        local tState = { resource = a.resource or (H.state and H.state.resource), pos = Vec3(a.pos),
+                         rot = Vec3(a.rot) or { 0, 0, 0 }, scale = a.scale }
         if tState.resource == nil or tState.pos == nil then
             Log.Write("Sync: unvollständige Aktion " .. Log.ToStr(a))
             return

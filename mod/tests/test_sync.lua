@@ -103,6 +103,12 @@ Sync.Tick()
 check(world[remotePart].pos[1] == 1 and world[remotePart].resource == "Rock", "Remote-Änderung angewendet (Ressource übernommen)")
 check(#sent == 2, "Remote-Aktionen werden nicht zurückgesendet")
 
+-- Format, wie api.json.Stringify des Spiels es erzeugt: {"1":x,"2":y,"3":z}
+inbox[#inbox + 1] = { t = "action", seq = 3, clientId = "c2", action = { op = "upsert", netId = "n2", origin = "other",
+    pos = { ["1"] = 7, ["2"] = 8, ["3"] = 9 }, rot = { ["1"] = 0, ["2"] = 1, ["3"] = 0 }, scale = 2 } }
+Sync.Tick()
+check(world[remotePart].pos[1] == 7 and world[remotePart].rot[2] == 1, "Positionen im Objekt-Format {\"1\":..} werden verstanden")
+
 -- Lokale Änderung am Remote-Objekt -> geht mit netId n2 raus
 local_action({ op = "upsert", partID = remotePart, resource = "Rock", pos = { 2, 2, 2 }, rot = { 0, 0, 0 }, scale = 2 })
 check(sent[#sent].action.netId == "n2", "lokale Änderung an fremdem Objekt nutzt dessen netId")
