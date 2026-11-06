@@ -79,11 +79,29 @@ Events.fnIsSuppressing = nil
 -- PartIDs, die der Spieler selbst erzeugt/geändert hat (dürfen nie unterdrückt werden)
 Events.tKnownOriginals = {}
 
+-- Frame-Zähler (vom Manager gesetzt), für zeitlich begrenztes Ignorieren
+Events.fnNow = function() return 0 end
+
+-- Events für nPartID die nächsten nFrames ignorieren (Echo unserer eigenen Replays).
+-- nFrames = nil -> für immer (Spiegel-Zwillinge).
+function Events.IgnoreFor(nPartID, nFrames)
+    if nPartID == nil then return end
+    Events.tIgnore[nPartID] = nFrames and (Events.fnNow() + nFrames) or true
+end
+
+function Events.IsIgnored(nPartID)
+    local e = Events.tIgnore[nPartID]
+    if e == true then return true end
+    if e ~= nil and Events.fnNow() <= e then return true end
+    if e ~= nil then Events.tIgnore[nPartID] = nil end
+    return false
+end
+
 function Events.HandlePart(nPartID, nTry)
-    if Events.tIgnore[nPartID] then return end
+    if Events.IsIgnored(nPartID) then return end
     if not Events.tKnownOriginals[nPartID] and Events.fnIsSuppressing and Events.fnIsSuppressing() then
         Log.Write("Events: Teil " .. tostring(nPartID) .. " während Replay -> als eigenes ignoriert")
-        Events.tIgnore[nPartID] = true
+        Events.IgnoreFor(nPartID, 30)
         -- Dem laufenden Replay-Job melden (so erfährt ein Create-Job die neue PartID)
         if Events.fnOnOwnPart then pcall(Events.fnOnOwnPart, nPartID) end
         return

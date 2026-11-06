@@ -119,6 +119,19 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("netId", m2["action"]["objects"][0])
         await a.close(); await b.close()
 
+    async def test_upsert_format_assigns_netid(self):
+        a = await TestClient.connect(self.port, "A"); await a.recv_until("caughtUp")
+        await a.send({"t": "action", "cseq": 1, "action": {
+            "op": "upsert", "localId": 77, "resource": "Tree", "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1}})
+        m = await a.recv_until("action")
+        self.assertEqual(m["action"]["netId"], "n1")
+        self.assertEqual((await a.recv_until("ids"))["map"], [{"localId": 77, "netId": "n1"}])
+        # Folge-Upsert mit netId bekommt keine neue ID
+        await a.send({"t": "action", "cseq": 2, "action": {"op": "upsert", "netId": "n1", "pos": [5, 5, 5]}})
+        m2 = await a.recv_until("action")
+        self.assertEqual(m2["action"]["netId"], "n1")
+        await a.close()
+
     async def test_catch_up_and_persistence(self):
         a = await TestClient.connect(self.port, "A"); await a.recv_until("caughtUp")
         for i in range(3):

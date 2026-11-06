@@ -253,6 +253,10 @@ class Server:
         async with self._lock:
             seq = self.store.seq + 1
             id_map = []
+            # Format v1 der Mod: {"op":"upsert","localId":..} ohne netId = neues Objekt
+            if action.get("op") == "upsert" and "netId" not in action and "localId" in action:
+                action["netId"] = self.store.next_net_id()
+                id_map.append({"localId": action["localId"], "netId": action["netId"]})
             for obj in action.get("objects") or []:
                 # Neue Objekte (ohne netId) bekommen eine globale ID
                 if isinstance(obj, dict) and "netId" not in obj and _creates_objects(action):

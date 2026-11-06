@@ -35,13 +35,13 @@ function Mirror.OnAction(tAction)
             Mirror.tPending[nSrc] = true
             Replay.Enqueue("create twin of " .. tostring(nSrc) .. " " .. tostring(tAction.resource), function()
                 return Replay.DoCreate(Shifted(tAction), function(nNewID)
-                    Events.tIgnore[nNewID] = true
+                    Events.IgnoreFor(nNewID)
                 end)
             end, function(bOk, nNewID)
                 Mirror.tPending[nSrc] = nil
                 if bOk and nNewID ~= nil then
                     Mirror.tTwinOf[nSrc] = nNewID
-                    Events.tIgnore[nNewID] = true
+                    Events.IgnoreFor(nNewID)
                     Log.Write("Mirror: Zwilling " .. tostring(nNewID) .. " für " .. tostring(nSrc))
                 else
                     Log.Write("Mirror: Zwilling für " .. tostring(nSrc) .. " fehlgeschlagen")

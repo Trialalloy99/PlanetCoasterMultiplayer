@@ -29,6 +29,7 @@ local tExports = {
     "pc2mp_init", "pc2mp_info", "pc2mp_read_i64",
     "pc2mp_net_connect", "pc2mp_net_disconnect", "pc2mp_net_send",
     "pc2mp_net_poll", "pc2mp_net_status", "pc2mp_net_error", "pc2mp_net_set_hello",
+    "pc2mp_read_config",
 }
 
 local function ToJson(msg)
@@ -146,6 +147,18 @@ end
 
 function Net.IsConnected()
     return (Net.Status()) == "connected"
+end
+
+-- Liest PC2MP_config.json (neben der DLL) und gibt die Tabelle zurück, oder nil + Fehler.
+function Net.ReadConfig()
+    if not Net.Init() then return nil, Net.sError end
+    local ok, v = pcall(Net.tFns.pc2mp_read_config)
+    if not ok then return nil, tostring(v) end
+    if v == nil then return nil, "PC2MP_config.json fehlt" end
+    local s = ToLuaString(v)
+    local okP, bOk, t = pcall(api.json.Parse, s)
+    if okP and bOk and type(t) == "table" then return t end
+    return nil, "PC2MP_config.json ist kein gültiges JSON"
 end
 
 function Net.LastError()

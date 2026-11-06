@@ -5,9 +5,9 @@ Nur Python-Standardbibliothek (Python ≥ 3.10), keine Abhängigkeiten.
 
 ## Starten
 ```bash
-python server/pc2mp_server.py --port 7777 --park "multiplayer test"
+python server/pc2mp_server.py --port 7790 --park "multiplayer test"
 ```
-- lauscht auf `0.0.0.0:7777` (für Freunde übers Internet: Port-Weiterleitung oder z. B. Tailscale)
+- lauscht auf `0.0.0.0:7790` (für Freunde übers Internet: Port-Weiterleitung oder z. B. Tailscale)
 - Daten: `server/data/<park>/` → `actions.jsonl` (alle Aktionen), `meta.json`, `save.park2` + `save.json`
   (`server/data/` ist in `.gitignore`)
 
@@ -28,3 +28,7 @@ python server/fake_client.py --name Bot --tree    # Fake-Spiel verbinden, Beispi
 - Konflikte (zwei Spieler bearbeiten gleichzeitig dasselbe Objekt) – aktuell gewinnt die Server-Reihenfolge.
 - Kürzen des Aktionsprotokolls nach einem Snapshot.
 - Authentifizierung (aktuell: jeder mit Netzzugang kann verbinden).
+
+## VPS
+Läuft als systemd-Dienst `pc2mp` (User `pc2mp`, `/opt/pc2mp`, Daten in `/opt/pc2mp/data`, Port 7790/tcp).
+Deploy/Update: `bash server/deploy/deploy.sh` (braucht SSH-Key). Logs: `journalctl -u pc2mp -f`.

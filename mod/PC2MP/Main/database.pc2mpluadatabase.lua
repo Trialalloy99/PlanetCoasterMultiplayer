@@ -47,6 +47,13 @@ LuaDB.tManagers = {
     },
 }
 
+-- ACSE: Hook auf das Spieler-Undo (wird beim ersten require des Moduls angewendet)
+function LuaDB.AddLuaHooks(_fnAdd)
+    _fnAdd("Editors.Shared.BaseEditMode", function(tModule)
+        require("pc2mp.undohook").AcseHook(tModule)
+    end)
+end
+
 function LuaDB.AddLuaManagers(_fnAdd)
     for sEnvironmentName, tParams in global.pairs(LuaDB.tManagers) do
         _fnAdd(sEnvironmentName, tParams)

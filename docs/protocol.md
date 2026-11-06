@@ -1,7 +1,7 @@
 # PC2MP Netzwerkprotokoll (v1)
 
 Transport: **TCP**, Nachrichten als **newline-delimited JSON** (UTF-8, eine JSON-Objekt-Zeile pro Nachricht,
-abgeschlossen mit `\n`). Standard-Port: **7777**. Max. Zeilenlänge: 1 MiB.
+abgeschlossen mit `\n`). Standard-Port: **7790** (VPS-Deployment, siehe server/deploy). Max. Zeilenlänge: 1 MiB.
 
 Jede Nachricht hat ein Feld `"t"` (Typ). Client = Spiel (über `PC2MPNative.dll`), Server = `server/`.
 
@@ -62,3 +62,14 @@ S→C {"t":"error","code":"...","msg":"..."}
 - `actions.jsonl` – jede weitergeleitete `action`-Nachricht (mit `seq`) als Zeile, append-only.
 - `meta.json` – `serverSeq`, `nextNetId`, Info zum letzten Spielstand.
 - `save.park2` (+ `save.json` mit `seq`, `sha256`).
+
+## Aktionsformat der Mod (v1, pc2mp.sync)
+```
+{"op":"upsert","localId":1185,"origin":"<instanz>","resource":"NAT_Tree_...","pos":[x,y,z],"rot":[ax,ay,az],"scale":1.0}
+   -> Server vergibt netId ("n1"), Absender bekommt {"t":"ids","map":[{"localId":1185,"netId":"n1"}]}
+{"op":"upsert","netId":"n1","origin":"...","resource":...,"pos":...,"rot":...,"scale":...}   (Änderung)
+{"op":"remove","netId":"n1","origin":"..."}
+```
+- `origin` = zufällige Kennung der Spielsitzung; Clients ignorieren Aktionen mit eigenem origin (auch im Catch-up).
+- `rot` = Rotation als „packed axis angle“ (`Quaternion:ToPackedAxisAngle()` / `Quaternion.FromPackedAxisAngle`).
+- Undo/Redo werden NICHT als eigene Ops gesendet, sondern als der resultierende upsert/remove.

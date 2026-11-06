@@ -417,6 +417,36 @@ EXPORT int pc2mp_net_error(void *L)
     return 0;
 }
 
+/* pc2mp_read_config() -> Inhalt von PC2MP_config.json (neben der DLL) | nil
+   Lokale Einstellungen (Server-Adresse, Name), die nicht ins oeffentliche Repo gehoeren. */
+EXPORT int pc2mp_read_config(void *L)
+{
+    GUARD_TRY {
+        char path[MAX_PATH];
+        FILE *f;
+        char *buf;
+        long n;
+        snprintf(path, sizeof(path), "%sPC2MP_config.json", g_dir);
+        f = fopen(path, "rb");
+        if (!f) { push_nil(L); return 1; }
+        fseek(f, 0, SEEK_END);
+        n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (n <= 0 || n > 65536) { fclose(f); push_nil(L); return 1; }
+        buf = (char *)malloc((size_t)n);
+        if (!buf) { fclose(f); push_nil(L); return 1; }
+        n = (long)fread(buf, 1, (size_t)n, f);
+        fclose(f);
+        ensure_resolved();
+        return_string(L, buf, (size_t)n);
+        free(buf);
+        return 1;
+    } GUARD_CATCH {
+        log_str("[native] pc2mp_read_config: Exception");
+    }
+    return 0;
+}
+
 #ifdef PC2MP_TEST
 /* Nur im Test-Build: Fake-luaS_newlstr einsetzen (NULL = Chunk-Fallback testen). */
 EXPORT void pc2mp_test_set_newlstr(luaS_newlstr_fn f)

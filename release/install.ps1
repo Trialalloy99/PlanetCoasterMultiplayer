@@ -47,5 +47,26 @@ $dest = Join-Path $ovl "PC2MP"
 New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item (Join-Path $here "PC2MP\*") $dest -Force
 Write-Host "PC2MP installiert nach: $dest" -ForegroundColor Green
+
+# Multiplayer-Konfiguration (lokal, nicht im Repo)
+$cfgPath = Join-Path $dest "PC2MP_config.json"
+if (Test-Path $cfgPath) {
+    Write-Host "Vorhandene Konfiguration bleibt erhalten: $cfgPath"
+} else {
+    Write-Host ""
+    Write-Host "Multiplayer einrichten (leer lassen = nur lokaler Spiegel-Test):"
+    $server = Read-Host "Server-Adresse (z. B. 1.2.3.4 oder 1.2.3.4:7790)"
+    if ($server) {
+        $name = Read-Host "Dein Spielername"
+        if (-not $name) { $name = $env:USERNAME }
+        $park = Read-Host "Park-Name (bei allen gleich, Enter = 'multiplayer test')"
+        if (-not $park) { $park = "multiplayer test" }
+        $port = 7790
+        if ($server -match "^(.+):(\d+)$") { $server = $Matches[1]; $port = [int]$Matches[2] }
+        $cfg = [ordered]@{ enabled = $true; host = $server; port = $port; name = $name; park = $park }
+        $cfg | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding ascii
+        Write-Host "Konfiguration gespeichert: $cfgPath" -ForegroundColor Green
+    }
+}
 Write-Host "Log-Datei (für Fehlersuche): $dest\PC2MP_native.log"
 pause
