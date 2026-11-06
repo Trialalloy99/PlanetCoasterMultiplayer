@@ -62,10 +62,13 @@ end
 
 -- api.undo.* wrappen (globale Tabelle, früh möglich).
 function UndoHooks.WrapUndoAPI()
-    if UndoHooks.bUndoWrapped then return end
+    -- Merker in api ablegen: Module werden pro Environment neu geladen, api ist global geteilt.
+    api.pc2mp = api.pc2mp or {}
+    if api.pc2mp.bUndoWrapped then return end
     local undo = api.undo
     Log.Write("api.undo type=" .. type(undo))
     if type(undo) ~= "table" then return end
+    api.pc2mp.bUndoWrapped = true
     local tNames = {
         "PreviewChangeList", "CommitPreview", "CancelPreview", "CanCommitPreview",
         "Checkpoint", "Undo", "Redo", "Operation_Undo", "ClearHistory",
