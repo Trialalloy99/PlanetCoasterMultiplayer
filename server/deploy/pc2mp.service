@@ -1,0 +1,23 @@
+[Unit]
+Description=PC2MP Relay-Server (Planet Coaster 2 Multiplayer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pc2mp
+Group=pc2mp
+WorkingDirectory=/opt/pc2mp
+ExecStart=/usr/bin/python3 /opt/pc2mp/pc2mp_server.py --host 0.0.0.0 --port 7790 --data /opt/pc2mp/data --park "multiplayer test"
+Restart=always
+RestartSec=3
+# Härtung
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/pc2mp/data
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
