@@ -68,6 +68,12 @@ package.preload["pc2mp.replay"] = function()
     function R.DoDestroy(id) assert(world[id], "destroy auf unbekanntes Teil " .. tostring(id)); world[id] = nil; return true end
     return R
 end
+local weApplied = {}
+package.preload["pc2mp.worldedit"] = function()
+    local W = { tListeners = {} }
+    function W.Apply(a, off, done) weApplied[#weApplied + 1] = a; if done then done(true) end end
+    return W
+end
 preload("pc2mp.sync")
 
 local Sync = require("pc2mp.sync")
@@ -163,5 +169,15 @@ local nWorld = 0; for _ in pairs(world) do nWorld = nWorld + 1 end
 Sync.Tick()
 local nWorld2 = 0; for _ in pairs(world) do nWorld2 = nWorld2 + 1 end
 check(world[7777].pos[1] == 4 and nWorld == nWorld2, "Remote-Änderung trifft das geladene Teil (kein Duplikat)")
+
+-- ---------------------------------------------------------------- 6. Terrain / Wege (worldedit)
+local W = require("pc2mp.worldedit")
+local nS = #sent
+for _, fn in ipairs(W.tListeners) do fn({ op = "terrain", calls = { { m = "AddSmoothToChangeList" } } }) end
+check(#sent == nS + 1 and sent[#sent].action.op == "terrain" and sent[#sent].action.origin == Sync.sInstance, "eigener Terrain-Strich wird gesendet")
+inbox[#inbox + 1] = { t = "action", seq = 50, clientId = "c9", action = { op = "volume", origin = "other", outlines = {} } }
+inbox[#inbox + 1] = { t = "action", seq = 51, clientId = "c1", action = { op = "terrain", origin = Sync.sInstance } }
+Sync.Tick()
+check(#weApplied == 1 and weApplied[1].op == "volume", "fremder Weg wird nachgespielt, eigenes Terrain-Echo nicht")
 
 print("\nALLE SYNC-TESTS OK")

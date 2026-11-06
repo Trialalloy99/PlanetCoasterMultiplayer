@@ -161,6 +161,16 @@ local function OnRemoteAction(msg)
         Sync.UpdateHello()
     end
     if a.origin == Sync.sInstance then return end -- eigenes Echo
+    -- Terrain / Wege (pc2mp.worldedit, #15): ohne netId, in Server-Reihenfolge nachspielen
+    if a.op == "terrain" or a.op == "volume" then
+        local okW, WorldEdit = pcall(require, "pc2mp.worldedit")
+        if okW then
+            WorldEdit.Apply(a, 0, function(bOk)
+                if not bOk then Log.Write("Sync: " .. a.op .. " von " .. tostring(msg.clientId) .. " fehlgeschlagen") end
+            end)
+        end
+        return
+    end
     local sNet = a.netId
     if sNet == nil then return end
     local H = Sync.tByNet[sNet]
@@ -266,6 +276,14 @@ function Sync.Start()
     Sync.bWaitConnect = true
     Sync.nWaitFrames = 0
     Events.AddListener(Sync.OnLocalAction)
+    -- Terrain-/Wege-Aktionen (pc2mp.worldedit) direkt senden; nicht im eigenen Undo-Stack (vorerst)
+    local okW, WorldEdit = pcall(require, "pc2mp.worldedit")
+    if okW then
+        WorldEdit.bMirror = false
+        WorldEdit.tListeners = { function(tAction)
+            if Sync.bActive then SendAction(tAction) end
+        end }
+    end
     Sync.bActive = true
     api.pc2mp.Sync = Sync -- für den Undo-Hook (läuft in einem anderen Modul-Kontext)
     Log.Write("Sync: Multiplayer aktiv, Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)

@@ -17,6 +17,7 @@ local Events = require("pc2mp.events")
 local Replay = require("pc2mp.replay")
 local Mirror = require("pc2mp.mirror")
 local UndoGuard = require("pc2mp.undoguard")
+local WorldEdit = require("pc2mp.worldedit")
 local Sync = require("pc2mp.sync")
 local UndoHook = require("pc2mp.undohook")
 
@@ -43,6 +44,9 @@ function PC2MPManager.Activate(self)
     local okG, errG = pcall(UndoGuard.Install)
     if not okG then Log.Write("UndoGuard Fehler: " .. tostring(errG)) end
     Replay.Init(tWorldAPIs)
+    -- Terrain + Wege erfassen (#15); Spiegel-Nachbau nur ohne Server (siehe unten)
+    local okW, errW = pcall(WorldEdit.Install, tWorldAPIs)
+    if not okW then Log.Write("WorldEdit.Install Fehler: " .. tostring(errW)) end
     Events.fnIsReplayCoroutine = Replay.IsReplayCoroutine
     Events.fnClaimOwnPart = Replay.ClaimOwnPart
     Events.fnHasOpenCreate = Replay.HasOpenCreate
@@ -60,6 +64,9 @@ function PC2MPManager.Activate(self)
         pcall(UndoHook.EnsurePatched)
     else
         Events.AddListener(Mirror.OnAction)
+        WorldEdit.bMirror = true
+        WorldEdit.tListeners = { WorldEdit.OnMirrorAction }
+        Log.Write("WorldEdit-Spiegel aktiv (Terrain/Wege bei x+" .. tostring(WorldEdit.nMirrorOffsetX) .. ")")
         Log.Write("Spiegel-Test aktiv (Zwilling bei x+" .. tostring(Mirror.nOffsetX) .. ")")
     end
     self.bActive = true
@@ -71,6 +78,8 @@ function PC2MPManager.Advance(self, _nDeltaTime)
     if not ok then Log.Write("Events.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Replay.Tick)
     if not ok then Log.Write("Replay.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(WorldEdit.Tick)
+    if not ok then Log.Write("WorldEdit.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Sync.Tick)
     if not ok then Log.Write("Sync.Tick Fehler: " .. tostring(err)) end
 end
