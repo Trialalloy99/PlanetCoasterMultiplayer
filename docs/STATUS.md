@@ -1,6 +1,6 @@
 # Status
 
-_Zuletzt aktualisiert: 2026-11-06 von agent:trialalloy_
+_Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
 
 ## Erledigt
 - [maxi] Lua-Weg bestätigt, ACSE 0.729 (PC2) + ForgeUtils v2.8.0 installiert.
@@ -19,6 +19,11 @@ _Zuletzt aktualisiert: 2026-11-06 von agent:trialalloy_
   gefunden → Strings DLL→Lua (Fallback: Chunks). TCP-Thread (NDJSON, Auto-Reconnect, Hello bei jedem Connect),
   Lua-Wrapper `pc2mp.net.lua`. Getestet gegen echte Exe (gemappt) + echten Server inkl. Neustart
   → `docs/findings/native-bridge.md`
+
+- [trialalloy] **PR #16 Crash-Fix:** Einfügen mehrerer Objekte → nativer Absturz in `api.undo.IsOperationComplete`
+  (ungültiger Token, Replay-Preview parallel zur Spiel-Operation). Neues `pc2mp.undoguard` (keine Änderung an replay/events/sync).
+- [trialalloy] **PR #17 Persistenz (#14/#3):** DLL-Datei- + Spielstand-Transfer-Exporte, `pc2mp.persist`
+  (JSON + worldserialisation-Client im Spielstand; partIDs sind nach dem Laden NICHT stabil) → `docs/findings/save-load.md`
 
 ## In Arbeit
 - [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
