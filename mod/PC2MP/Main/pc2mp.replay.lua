@@ -49,14 +49,37 @@ local function MakeTransform(tAction)
     return TransformQ.FromOrPos(q, Vector3:new(p[1], p[2], p[3]))
 end
 
-local function PreviewAndCommit(clh)
-    while api.undo.IsBusy() do Yield() end
-    local waitToken, previewToken = api.undo.PreviewChangeList(clh:GetFullUndoChangeList())
-    WaitOp(waitToken)
-    local bCan = api.undo.CanCommitPreview(previewToken)
-    while bCan == nil do
+-- Wartet bis fnCond() true ist; nach nMax Frames Abbruch mit Log der Phase (statt stumm zu hängen)
+local function WaitUntil(fnCond, sStage, nMax)
+    local n = 0
+    while not fnCond() do
+        n = n + 1
+        if n > (nMax or 240) then
+            Log.Write("Replay: hängt in Phase '" .. sStage .. "' (" .. n .. " Frames)")
+            return false
+        end
         Yield()
-        bCan = api.undo.CanCommitPreview(previewToken)
+    end
+    return true
+end
+
+local function PreviewAndCommit(clh)
+    WaitUntil(function() return not api.undo.IsBusy() end, "undo busy")
+    local waitToken, previewToken = api.undo.PreviewChangeList(clh:GetFullUndoChangeList())
+    if not WaitUntil(function() return api.undo.IsOperationComplete(waitToken) end, "preview") then
+        pcall(api.undo.CancelPreview, previewToken)
+        return false
+    end
+    local bCan = api.undo.CanCommitPreview(previewToken)
+    if bCan == nil then
+        WaitUntil(function()
+            bCan = api.undo.CanCommitPreview(previewToken)
+            return bCan ~= nil
+        end, "CanCommitPreview")
+    end
+    if bCan == nil then
+        pcall(api.undo.CancelPreview, previewToken)
+        return false
     end
     if bCan then
         WaitOp(api.undo.CommitPreview(previewToken))
@@ -122,13 +145,39 @@ function Replay.DoEdit(nPartID, tAction)
     return PreviewAndCommit(clh)
 end
 
+-- Löschen wie das Spiel selbst (SelectAndEditComponent.QuickDeleteObject):
+-- Teile bearbeiten -> "Abriss"-Composite -> aus Gruppe entfernen -> Composite:Destroy() -> Commit
 function Replay.DoDestroy(nPartID)
     local tw = Replay.tWorldAPIs
+    if not tw.placement:PlacementPartExists(nPartID) then
+        Log.Write("Replay: Löschen übersprungen, Teil " .. tostring(nPartID) .. " existiert nicht")
+        return true
+    end
     local clh = tw.editors:CreateUndoOperationsHierarchy()
     local set = tw.scenery:CreateBuildingPartSet()
     set:Add(nPartID)
-    local tDel = clh:DestroyExistingParts(set)
-    pcall(clh.StartEditingParts_Scenery, clh, tDel)
+    local token = api.entity.CreateRequestCompletionToken()
+    local tCOs = clh:EditExistingParts(set, token)
+    local nGroupID = tw.scenery_group and tw.scenery_group:TryGetBuildingGroupForPart(nPartID) or nil
+    local groupCO = nil
+    if nGroupID ~= nil and tw.placement:PlacementPartExists(nGroupID) then
+        groupCO = clh:EditExistingPart(nGroupID, nil, token)
+    end
+    WaitRequests(token)
+    local tEOs = clh:StartEditingParts_Scenery(tCOs)
+    local comp = clh:CreateCompositeObject({ bDemolishOnly = true })
+    clh:AddPartsToCompositeObject(comp, tEOs)
+    if groupCO ~= nil then
+        local geo = clh:StartEditingPart_Group(groupCO)
+        geo:RemoveMember(comp)
+        if geo:ShouldDestroyGroup() then
+            geo:ClearMembers()
+            geo:Destroy()
+        end
+    end
+    local okO, obb = pcall(comp.GetOBB, comp)
+    if okO and obb ~= nil then pcall(clh.SetCashPos, clh, obb:Pos()) end
+    comp:Destroy()
     return PreviewAndCommit(clh)
 end
 
