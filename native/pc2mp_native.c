@@ -18,7 +18,8 @@
  *   pc2mp_net_poll()                -> naechste Nachricht als String | nil
  *                                      (Fallback-Modus: Laenge als Integer, dann pc2mp_read_i64(i))
  *   pc2mp_read_i64(i)               -> Bytes [8*(i-1), 8*i) der zuletzt gepollten Nachricht als int64
- *   pc2mp_net_status()              -> status, eingehend wartend, ausgehend wartend
+ *   pc2mp_net_set_hello(json)       -> 1 ; wird bei jedem (Re-)Connect zuerst gesendet ("" = aus)
+ *   pc2mp_net_status()              -> status, eingehend wartend, ausgehend wartend, Anzahl Verbindungen
  *                                      (0 idle, 1 verbindet, 2 verbunden, 3 warte auf Reconnect)
  *   pc2mp_net_error()               -> letzter Fehlertext | nil
  */
@@ -372,14 +373,29 @@ EXPORT int pc2mp_net_poll(void *L)
     return 0;
 }
 
-/* pc2mp_net_status() -> status, wartend_ein, wartend_aus */
+/* pc2mp_net_set_hello(json) -> 1 ; wird bei jedem (Re-)Connect als erste Nachricht gesendet ("" = aus) */
+EXPORT int pc2mp_net_set_hello(void *L)
+{
+    GUARD_TRY {
+        const char *s; size_t len;
+        int ok = arg_string(L, 1, &s, &len) && net_set_hello(s, len);
+        push_int(L, ok);
+        return 1;
+    } GUARD_CATCH {
+        log_str("[native] pc2mp_net_set_hello: Exception");
+    }
+    return 0;
+}
+
+/* pc2mp_net_status() -> status, wartend_ein, wartend_aus, anzahl_verbindungen */
 EXPORT int pc2mp_net_status(void *L)
 {
     GUARD_TRY {
         push_int(L, net_status());
         push_int(L, (long long)net_pending_in());
         push_int(L, (long long)net_pending_out());
-        return 3;
+        push_int(L, net_connect_count());
+        return 4;
     } GUARD_CATCH {
         log_str("[native] pc2mp_net_status: Exception");
     }

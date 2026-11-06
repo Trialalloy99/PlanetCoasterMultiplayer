@@ -36,6 +36,10 @@ Die DLL macht das genauso (nur wenn der Stempel gefunden wurde). `ping` ging bei
 - TCP-Client im eigenen Thread, **newline-delimited JSON**. Lua blockiert nie: `Send` reiht ein, `Poll` holt.
 - Auto-Reconnect alle 2 s. Gleiches Ziel erneut `connect` → kein Reconnect (Lua-Module laufen pro Environment neu,
   die Verbindung der DLL überlebt den Wechsel Frontend → Park).
+- **Hello bei jedem (Re-)Connect:** `Net.SetHello({t="hello", v=1, name=…, park=…, lastSeq=N})` speichert die
+  Nachricht in der DLL. Sie geht nach jedem Verbindungsaufbau **vor** allen wartenden Nachrichten raus
+  (sonst kämen Aktionen vor dem Handshake an). Bei neuem `lastSeq` einfach erneut setzen.
+  Den Reconnect erkennt man am 4. Rückgabewert von `Net.Status()` (Anzahl Verbindungen).
 - Queues max. 64 MB je Richtung, Zeilen max. 16 MB. `\n`/`\r` in ausgehenden Nachrichten → Leerzeichen.
 - Der Thread hält eine Referenz auf die DLL (`FreeLibraryAndExitThread`), damit `lua_close` die DLL nicht
   unter dem Thread entlädt.
@@ -47,10 +51,11 @@ Die DLL macht das genauso (nur wenn der Stempel gefunden wurde). `ping` ging bei
 local Net = require("pc2mp.net")
 Net.Init()                      -- lädt DLL-Exporte, Net.bStrings = true wenn luaS_newlstr gefunden
 Net.Info()                      -- Diagnose-String (gefundene RVAs)
-Net.Connect("127.0.0.1", 7777)  -- nicht-blockierend
-Net.Send({ t = "hello" })       -- Tabelle -> api.json.Stringify, oder fertiger String
+Net.SetHello({ t = "hello", v = 1, name = "Finn", park = "multiplayer test", lastSeq = 0 })
+Net.Connect("127.0.0.1", 7777)  -- nicht-blockierend; Hello geht automatisch zuerst raus
+Net.Send({ t = "action", cseq = 1, action = tAction })  -- Tabelle -> api.json.Stringify, oder fertiger String
 Net.Pump(function(tMsg, sRaw) ... end, 32)  -- pro Frame im Manager:Advance
-Net.Status()                    -- "idle"/"connecting"/"connected"/"retry", nWartendEin, nWartendAus
+Net.Status()                    -- "idle"/"connecting"/"connected"/"retry", nWartendEin, nWartendAus, nVerbindungen
 Net.LastError()
 ```
 `api.json.Stringify(t[, bPretty]) -> ok, s` und `api.json.Parse(s) -> ok, t` (aus dem Spiel-Lua).
@@ -60,6 +65,9 @@ Net.LastError()
 - `test_resolve`: Signatursuche gegen die echte `PlanetCoaster2.exe` (nur gemappt, nicht gestartet).
 - `test_bridge`: Fake-`lua_State` im Frontier-Layout + TCP-Echo-Server: ping, Strings kurz/lang, Fallback,
   Zeilenumbrüche, kaputtes Layout crasht nicht.
+- `test_server_client` (via `test_with_server.py`): gegen den **echten** `server/pc2mp_server.py`:
+  Hello → `welcome` + `caughtUp`, Aktion → Echo mit `seq` + `ids`, dann Server-Neustart → Reset erkannt
+  (WSA 10054) → Auto-Reconnect → Hello automatisch erneut → Catch-up enthält die Aktion. **Bestanden.**
 
 ## Smoke-Test im Spiel (bitte, wer ACSE hat)
 Im Manager `Activate`:

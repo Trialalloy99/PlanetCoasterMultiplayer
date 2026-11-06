@@ -34,6 +34,9 @@ static volatile LONG g_generation = 0;  /* erhoeht bei neuem Ziel -> Thread verb
 static HANDLE g_thread = NULL;
 static HANDLE g_wake = NULL;            /* Event: neue Ausgangsdaten / Zielwechsel */
 static char g_err[256];
+static char *g_hello = NULL;            /* wird bei jedem (Re-)Connect zuerst gesendet (inkl. '\n') */
+static size_t g_hello_len = 0;
+static volatile LONG g_connects = 0;    /* Anzahl erfolgreicher Verbindungen (Reconnect-Erkennung in Lua) */
 
 static void set_err(const char *fmt, int code)
 {
@@ -159,6 +162,31 @@ static DWORD WINAPI worker(LPVOID self_module)
             WaitForSingleObject(g_wake, RETRY_MS);
             continue;
         }
+        /* Hello zuerst, damit der Server den Handshake vor allen wartenden Nachrichten sieht */
+        {
+            int ok = 1;
+            EnterCriticalSection(&g_lock);
+            if (g_hello) {
+                size_t sent = 0;
+                while (sent < g_hello_len) {
+                    int n = send(s, g_hello + sent, (int)(g_hello_len - sent), 0);
+                    if (n == SOCKET_ERROR) {
+                        if (WSAGetLastError() == WSAEWOULDBLOCK) { Sleep(1); continue; }
+                        ok = 0; break;
+                    }
+                    sent += (size_t)n;
+                }
+            }
+            LeaveCriticalSection(&g_lock);
+            if (!ok) {
+                set_err("hello senden fehlgeschlagen (WSA %d)", WSAGetLastError());
+                closesocket(s);
+                InterlockedExchange(&g_status, NET_RETRY_WAIT);
+                WaitForSingleObject(g_wake, RETRY_MS);
+                continue;
+            }
+        }
+        InterlockedIncrement(&g_connects);
         InterlockedExchange(&g_status, NET_CONNECTED);
         used = 0;
         while (g_want && gen == g_generation) {
@@ -295,6 +323,26 @@ void net_free(char *p)
 }
 
 int net_status(void) { return (int)g_status; }
+
+int net_connect_count(void) { return (int)g_connects; }
+
+int net_set_hello(const char *data, size_t len)
+{
+    char *h;
+    size_t i;
+    net_init();
+    h = (char *)malloc(len + 1);
+    if (!h) return 0;
+    for (i = 0; i < len; i++) h[i] = (data[i] == '\n' || data[i] == '\r') ? ' ' : data[i];
+    h[len] = '\n';
+    EnterCriticalSection(&g_lock);
+    free(g_hello);
+    g_hello = len ? h : NULL;
+    g_hello_len = len ? len + 1 : 0;
+    LeaveCriticalSection(&g_lock);
+    if (!len) free(h);
+    return 1;
+}
 
 size_t net_pending_in(void)
 {

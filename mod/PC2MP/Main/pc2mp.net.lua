@@ -28,8 +28,15 @@ local tStatusNames = { [0] = "idle", "connecting", "connected", "retry" }
 local tExports = {
     "pc2mp_init", "pc2mp_info", "pc2mp_read_i64",
     "pc2mp_net_connect", "pc2mp_net_disconnect", "pc2mp_net_send",
-    "pc2mp_net_poll", "pc2mp_net_status", "pc2mp_net_error",
+    "pc2mp_net_poll", "pc2mp_net_status", "pc2mp_net_error", "pc2mp_net_set_hello",
 }
+
+local function ToJson(msg)
+    if type(msg) ~= "table" then return msg end
+    local okJ, bOk, sJson = pcall(api.json.Stringify, msg)
+    if okJ and bOk and type(sJson) == "string" then return sJson end
+    return nil
+end
 
 -- Laedt alle Exporte; true bei Erfolg.
 function Net.Init()
@@ -86,14 +93,19 @@ end
 -- Sendet einen String oder eine Tabelle (wird per api.json.Stringify serialisiert).
 function Net.Send(msg)
     if not Net.Init() then return false end
-    local sMsg = msg
-    if type(msg) == "table" then
-        local okJ, bOk, sJson = pcall(api.json.Stringify, msg)
-        if not (okJ and bOk and type(sJson) == "string") then return false end
-        sMsg = sJson
-    end
+    local sMsg = ToJson(msg)
     if type(sMsg) ~= "string" then return false end
     local ok, n = pcall(Net.tFns.pc2mp_net_send, sMsg)
+    return ok and n == 1
+end
+
+-- Hello-Nachricht (Tabelle oder String), die die DLL bei JEDEM (Re-)Connect als erste sendet.
+-- Bei neuem lastSeq einfach erneut setzen. "" schaltet es ab.
+function Net.SetHello(msg)
+    if not Net.Init() then return false end
+    local sMsg = ToJson(msg)
+    if type(sMsg) ~= "string" then return false end
+    local ok, n = pcall(Net.tFns.pc2mp_net_set_hello, sMsg)
     return ok and n == 1
 end
 
@@ -123,12 +135,13 @@ function Net.Pump(fnHandler, nMax)
     end
 end
 
--- sStatus ("idle"/"connecting"/"connected"/"retry"), nWartendEin, nWartendAus
+-- sStatus ("idle"/"connecting"/"connected"/"retry"), nWartendEin, nWartendAus, nVerbindungen
+-- nVerbindungen steigt bei jedem (Re-)Connect -> Lua erkennt daran einen Reconnect.
 function Net.Status()
-    if not Net.tFns then return "unloaded", 0, 0 end
-    local ok, n, nIn, nOut = pcall(Net.tFns.pc2mp_net_status)
-    if not ok then return "error", 0, 0 end
-    return tStatusNames[n] or tostring(n), nIn, nOut
+    if not Net.tFns then return "unloaded", 0, 0, 0 end
+    local ok, n, nIn, nOut, nConnects = pcall(Net.tFns.pc2mp_net_status)
+    if not ok then return "error", 0, 0, 0 end
+    return tStatusNames[n] or tostring(n), nIn, nOut, nConnects
 end
 
 function Net.IsConnected()

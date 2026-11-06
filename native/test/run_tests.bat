@@ -1,7 +1,8 @@
 @echo off
 rem Tests der nativen Bruecke ohne Spiel (braucht zig wie in native\build.bat, plus Python).
 rem   1. test_resolve: Signatursuche gegen die echte PlanetCoaster2.exe (wird nur gemappt, nicht gestartet)
-rem   2. test_bridge : Fake-lua_State + TCP-Echo-Server (Strings, Fallback, Reconnect-faehiger Client)
+rem   2. test_bridge : Fake-lua_State + TCP-Echo-Server (Strings, Fallback, Zeilenumbrueche, kaputtes Layout)
+rem   3. test_server_client: gegen server\pc2mp_server.py, Server-Neustart -> Auto-Reconnect + Hello + Catch-up
 setlocal
 set "ROOT=%~dp0..\.."
 set "OUT=%ROOT%\build\native"
@@ -21,5 +22,8 @@ echo === test_bridge
 start "" /b python "%~dp0echo_server.py" 37777 --once
 ping -n 2 127.0.0.1 >nul
 "%OUT%\test_bridge.exe" "%OUT%\PC2MPNative_test.dll" 37777 || set FAILED=1
+echo === test_server_client (echter server\pc2mp_server.py inkl. Neustart/Reconnect)
+"%ZIG%" cc -target x86_64-windows-gnu -O1 -o "%OUT%\test_server_client.exe" "%~dp0test_server_client.c" || exit /b 1
+python "%~dp0test_with_server.py" "%OUT%\test_server_client.exe" "%OUT%\PC2MPNative_test.dll" || set FAILED=1
 if defined FAILED exit /b 1
 echo ALLE NATIVEN TESTS OK
