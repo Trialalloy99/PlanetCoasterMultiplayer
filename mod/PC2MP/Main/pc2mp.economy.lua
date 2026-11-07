@@ -43,7 +43,12 @@ Eco.tGenerated = {}          -- Staff-Entity -> { prefab, x } (aus GenerateRando
 Eco.tSeenStaff = {}          -- Staff-Entity -> true (war schon einmal abgesetzt -> "move")
 Eco.bApplying = false
 -- Einstellen nachbauen (v.8: Ablauf exakt wie StaffPlacementMode, siehe oben). Notschalter: false.
-Eco.bHireEnabled = true
+-- ABSTURZ 2026-11-07 15:04 (Maxi, Empfänger): Finn stellt einen "Vendor" ein -> Maxis Spiel stürzt beim Nachbauen
+-- nativ ab (ACCESS_VIOLATION exe+0x72cfbc, direkt nach "Replay: starte staff hire"). Bis das im Spiel geklärt ist:
+-- Einstellen wird weder gesendet noch beim Empfänger nachgebaut (Empfänger-Sperre schützt auch vor alten Versionen).
+-- Hinweis: der dekompilierte StaffPlacementMode.TransitionIn ruft direkt nach GenerateRandomStaff
+-- SetStaffMemberSuspended(e, true) auf; Vendor bekommt zusätzlich einen Platzierungsring.
+Eco.bHireEnabled = false
 Eco.bTwinMode = false        -- Testmodus: Mitarbeiter-Zwillinge über tTwinStaff statt über den Namen
 Eco.tTwinStaff = {}          -- Name des Originals -> Entity des Zwillings
 
@@ -175,6 +180,10 @@ function Eco.ApplyStaff(a, sFrom)
         api.pc2mp.bEcoApplying = false
         Note("Mitarbeiter '" .. sName .. "' versetzt (von " .. tostring(sFrom) .. ")")
         return true
+    end
+    if not Eco.bHireEnabled then
+        Note("Einstellen von '" .. sName .. "' (" .. tostring(a.prefab) .. ") nicht nachgebaut: abgeschaltet (Absturz-Schutz)")
+        return false
     end
     -- einstellen: exakt der Ablauf von StaffPlacementMode (kein Suspend auf den neuen Mitarbeiter!)
     if not coroutine.isyieldable() then
