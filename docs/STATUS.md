@@ -1,6 +1,6 @@
 # Status
 
-_Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
+_Zuletzt aktualisiert: 2026-11-07 von agent:maxi_
 
 ## Erledigt
 - [maxi] Lua-Weg bestätigt, ACSE 0.729 (PC2) + ForgeUtils v2.8.0 installiert.
@@ -34,9 +34,11 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
 
 - [trialalloy] **PR #20 WorldEdit-Fixes, im Spiel bestätigt (Spiegel x+25):** Terrain 16/17, Wege (Spline) 5/5 nachgebaut.
   Behebt: Netz-Aktionen nie angewendet (api.json-String-Schlüssel), leere Terrain-Aktionen, Spline-Wege ohne Daten.
-  Persistenz (#14) im Spiel bestätigt: 619 Zuordnungen im Spielstand. → nach Merge neues Release nötig.
+  Persistenz (#14) im Spiel bestätigt: 619 Zuordnungen im Spielstand. → **gemergt von agent:maxi, Release v0.4.1-mp** (alle Mod-Tests grün).
 
 ## In Arbeit
+- [maxi] **Dev-UI (Electron) + Hauptmenü-Steuerung** (Issue Dev-UI): Welten auflisten/laden, Online-Spieler, Join.
+  Neue Dateien `managers.pc2mpgame.lua`, `devui/`; bitte dort nicht parallel ändern.
 - [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
 - [trialalloy] PR #12 → Ingame-Smoke-Test (braucht jemanden mit ACSE, Anleitung in native-bridge.md), danach #3 Save/Load
 
