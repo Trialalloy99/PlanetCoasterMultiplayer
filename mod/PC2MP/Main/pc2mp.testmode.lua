@@ -112,11 +112,20 @@ function TestMode.ApplyInPark(bWanted)
     GameState.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
     RemoveFn(Events.tListeners, Mirror.OnAction)
     if bWanted then
+        -- Ablaufsteuerung im Zwilling soll auf die Zwillinge der Objekte zeigen
+        local Props = require("pc2mp.props")
+        Props.fnPartToRef = function(n) return n end
+        Props.fnRefToPart = function(r) return Mirror.tTwinOf[global.math.tointeger(tonumber(r)) or r] end
         Mirror.bEnabled = true
         table.insert(Events.tListeners, Mirror.OnAction)
         WorldEdit.bMirror = true
         WorldEdit.tListeners = { WorldEdit.OnMirrorAction }
         GameState.tListeners = { GameState.LoopbackListener }
+        -- Defekte: auf das gespiegelte Fahrgeschäft (falls es einen Zwilling gibt) übertragen
+        local BD = require("pc2mp.breakdowns")
+        BD.nOffsetX = nOff
+        BD.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
+        BD.tListeners = { function(a) BD.ApplyRemote(a, "Testmodus") end }
         if not t.bActive then TestMode.Note("Testmodus aktiv: Zwilling bei x+" .. tostring(nOff) .. " m") end
     else
         Mirror.bEnabled = false
@@ -125,6 +134,7 @@ function TestMode.ApplyInPark(bWanted)
             WorldEdit.bMirror = false
             WorldEdit.tListeners = {}
             GameState.tListeners = {}
+            require("pc2mp.breakdowns").tListeners = {}
             TestMode.Note("Testmodus aus")
         end
     end

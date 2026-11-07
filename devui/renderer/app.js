@@ -205,6 +205,14 @@ async function applyTestMode() {
 }
 
 $('#test-on').addEventListener('change', applyTestMode);
+$('#btn-test-breakdown').addEventListener('click', async () => {
+  const b = $('#btn-test-breakdown');
+  b.disabled = true;
+  const r = await api.testBreakdown();
+  b.disabled = false;
+  if (!r.ok) alert(r.error);
+  await pollGame();
+});
 $('#test-offset').addEventListener('change', () => { if ($('#test-on').checked) applyTestMode(); });
 
 // Spielstatus regelmäßig abfragen (auch ohne Server-Verbindung, für den Testmodus)

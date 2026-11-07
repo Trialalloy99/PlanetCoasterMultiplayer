@@ -299,12 +299,60 @@ local function OnUserRename(tMessages)
     end
 end
 
+local function OnTriggerPropData(tMessages)
+    for _, tMsg in pairs(tMessages or {}) do
+        if type(tMsg) == "table" and type(tMsg.nPartID) == "number" then Events.MarkDirty(tMsg.nPartID, true) end
+    end
+end
+
+-- Direkte Setter ohne Commit (Animation: "alle X Sekunden", Dauer) -> Teil als geändert merken
+Events.tDirectSetters = { sequence = { "SetTriggerDurationPart", "SetTriggerStrobePart" } }
+function Events.HookDirectSetters(tWorldAPIs)
+    api.pc2mp = api.pc2mp or {}
+    api.pc2mp.fnPartSetterCalled = function(nPartID)
+        local okS, S = pcall(require, "pc2mp.sequencer")
+        if okS and S and S.bApplying then return end
+        if Events.fnIsReplayCoroutine() then return end
+        if type(nPartID) == "number" then Events.MarkDirty(nPartID, true) end
+    end
+    local n = 0
+    for sApi, tMethods in pairs(Events.tDirectSetters) do
+        local obj = tWorldAPIs and tWorldAPIs[sApi]
+        for _, sM in ipairs(tMethods) do
+            local tgt = nil
+            if type(obj) == "table" then tgt = obj
+            else
+                local mt = global.getmetatable(obj)
+                if type(mt) == "table" and type(mt.__index) == "table" then tgt = mt.__index end
+            end
+            if tgt ~= nil and not global.rawget(tgt, "__pc2mp_ev_" .. sM) then
+                local okF, fnOrig = pcall(function() return obj[sM] end)
+                if okF and type(fnOrig) == "function" then
+                    global.rawset(tgt, sM, function(self, nPartID, ...)
+                        local r = table.pack(fnOrig(self, nPartID, ...))
+                        local fn = api.pc2mp and api.pc2mp.fnPartSetterCalled
+                        if fn then pcall(fn, nPartID) end
+                        return table.unpack(r, 1, r.n)
+                    end)
+                    global.rawset(tgt, "__pc2mp_ev_" .. sM, fnOrig)
+                    n = n + 1
+                end
+            elseif tgt ~= nil then
+                n = n + 1
+            end
+        end
+    end
+    Log.Write("Events: " .. n .. " direkte Setter überwacht")
+end
+
 local function OnUndoRedo(_tMessages)
     Log.Write("EVENT UndoRedoCompleted")
 end
 
 function Events.Register(tWorldAPIs)
     Events.tWorldAPIs = tWorldAPIs
+    local okH, errH = pcall(Events.HookDirectSetters, tWorldAPIs)
+    if not okH then Log.Write("Events: direkte Setter Fehler: " .. tostring(errH)) end
     local msg = api.messaging
     if type(msg) ~= "table" or type(msg.RegisterReceiver) ~= "function" then
         Log.Write("Events: api.messaging fehlt")
@@ -315,6 +363,7 @@ function Events.Register(tWorldAPIs)
         UndoRedoCompletedMessage = OnUndoRedo,
         MaterialChangedGameMessage = OnMaterialChanged,
         UserRenameMessage = OnUserRename,
+        TriggerTargetPropDataChangedMessage = OnTriggerPropData,
     }
     for sName, fn in pairs(tHandlers) do
         local nType = msg["MsgType_" .. sName]

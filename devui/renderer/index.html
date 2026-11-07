@@ -67,10 +67,15 @@
             <li><b>Weg-Extras</b> (Bänke, Lampen entlang des Wegs): als Objekte gespiegelt</li>
             <li><b>Park</b> öffnen/schließen, Name, Eintrittspreis: wird erfasst und testweise wieder angewendet</li>
             <li><b>Werbung</b> starten/beenden, Budget: wie beim Park</li>
+            <li><b>Animierte Szenerie</b>: Schleifentyp, Auslöser, „alle X Sekunden“, Dauer → Zwilling gleich</li>
+            <li><b>Event-Ablauf-Steuerung</b> setzen, programmieren (Spuren, Ereignisse, Gruppen), Musik, Auslöser → Zwilling-Steuerung steuert die Zwillinge</li>
+            <li><b>Zeit</b>: Pause, Geschwindigkeit, feste Uhrzeit/Sonne; <b>Wetter</b> erzwingen → erfasst + angewendet</li>
+            <li><b>Defekt</b> eines Fahrgeschäfts: Knopf unten, der Zwilling (falls gespiegelt) geht mit kaputt</li>
           </ul>
         </div>
         <div class="card">
-          <h3>Ereignisse <span class="badge" id="test-count">0</span></h3>
+          <h3>Ereignisse <span class="badge" id="test-count">0</span>
+            <button id="btn-test-breakdown" class="small" title="Löst an einem Fahrgeschäft im Park einen Defekt aus">Defekt auslösen</button></h3>
           <ol id="test-log" class="events"><li class="empty">Noch nichts gespiegelt.</li></ol>
         </div>
       </div>

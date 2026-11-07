@@ -15,6 +15,12 @@
 --/      Die Kampagnen-Funktionen im MarketingManager sind in PC2 leere Stubs.
 --/    Sandbox-/Welt-Einstellungen (Interfaces.ISandboxSettingsManager):  SetSandboxSettings(tSettings)
 --/      (StartScreen.Shared.SandboxPauseMenuHUD)
+--/    Zeit + Wetter (Windows.MainHUDGameface, Instanz = api.world.GetScript(GetActive()).mainHUD, CPTWorld):
+--/      ChangeSimulationSpeedSettings(bPause|nil, nTimeScaleIndex|nil)   Pause / Geschwindigkeit
+--/      ChangeFixedSunEnabled(b), ChangeFixedSunTime(nStunden)           feste Sonne (Parkoptionen)
+--/      EnableApparentTime(b), ChangeApparentTimeSettings(b, h, m, bPM)  feste Tageszeit
+--/      SetWeatherOverride(nIndex)                                      Wetter erzwingen
+--/      Echtes Zufallswetter und die Park-Uhr selbst: keine Lese-/Setz-API gefunden (siehe findings).
 -----------------------------------------------------------------------
 local global = _G
 local api = global.api
@@ -57,6 +63,14 @@ GameState.tTargets = {
     { k = "ads.SetCurrentCostPerHour", iface = "Interfaces.IGuestBucketManager", m = "SetCurrentCostPerHour", idx = true,
       debounce = true },
     { k = "sandbox.SetSandboxSettings", iface = "Interfaces.ISandboxSettingsManager", m = "SetSandboxSettings" },
+    -- event: jeder Aufruf zählt (keine Doppel-Unterdrückung), z. B. "alles reparieren"
+    { k = "park.RepairAllVandalisedItems", api = "park", m = "RepairAllVandalisedItems", event = true },
+    { k = "time.Speed", hud = true, m = "ChangeSimulationSpeedSettings" },
+    { k = "time.FixedSunEnabled", hud = true, m = "ChangeFixedSunEnabled" },
+    { k = "time.FixedSunTime", hud = true, m = "ChangeFixedSunTime", debounce = true },
+    { k = "time.EnableApparentTime", hud = true, m = "EnableApparentTime" },
+    { k = "time.ApparentTime", hud = true, m = "ChangeApparentTimeSettings", debounce = true },
+    { k = "weather.Override", hud = true, m = "SetWeatherOverride" },
 }
 GameState.tByKey = {}
 for _, t in ipairs(GameState.tTargets) do GameState.tByKey[t.k] = t end
@@ -135,7 +149,7 @@ function GameState.OnCall(sKey, tArgs, nArgs)
         GameState.tLast[sSlot] = sJson -- Ausgangszustand merken, nicht senden (Park lädt noch)
         return
     end
-    if GameState.tLast[sSlot] == sJson then return end
+    if GameState.tLast[sSlot] == sJson and not tgt.event then return end
     GameState.tLast[sSlot] = sJson
     local tAction = { op = "call", k = sKey, a = tA, n = nArgs }
     if tgt.debounce then
@@ -149,6 +163,10 @@ end
 
 function GameState.Tick()
     GameState.nFrame = GameState.nFrame + 1
+    if GameState.tMissing and #GameState.tMissing > 0 and GameState.nFrame % 60 == 0 and (GameState.nRetries or 0) < 30 then
+        GameState.nRetries = (GameState.nRetries or 0) + 1
+        pcall(GameState.WrapMissing, GameState.nRetries == 30)
+    end
     if global.next(GameState.tPending) == nil then return end
     local nNow = Now()
     for sSlot, p in pairs(GameState.tPending) do
@@ -234,6 +252,11 @@ local function WrapManager(obj, tgt)
 end
 
 local function FindTarget(tgt)
+    if tgt.hud then
+        if GameState.oHud ~= nil then return GameState.oHud end
+        local ok, ws = pcall(function() return api.world.GetScript(api.world.GetActive()) end)
+        return ok and type(ws) == "table" and ws.mainHUD or nil
+    end
     if tgt.api then
         local tw = GameState.tWorldAPIs
         return tw and tw[tgt.api]
@@ -251,18 +274,30 @@ function GameState.Install(tWorldAPIs, tEnvironment)
     GameState.nFrame = 0
     GameState.tLast, GameState.tPending = {}, {}
     Hub()
-    local nOk, tMissing = 0, {}
-    for _, tgt in ipairs(GameState.tTargets) do
+    GameState.tMissing = GameState.tTargets
+    GameState.nRetries = 0
+    local nOk = GameState.WrapMissing(true)
+    GameState.bInstalled = true
+    return nOk
+end
+
+-- Haken für noch fehlende Ziele setzen (das HUD entsteht evtl. erst nach unserem Manager)
+function GameState.WrapMissing(bLog)
+    local nOk, tStill, tNames = 0, {}, {}
+    for _, tgt in ipairs(GameState.tMissing or {}) do
         local obj = FindTarget(tgt)
         local ok, b = false, false
         if obj ~= nil then
-            ok, b = pcall(tgt.api and WrapApi or WrapManager, obj, tgt)
+            ok, b = pcall(tgt.api and WrapApi or WrapManager, obj, tgt)  -- HUD: Instanz wie ein Manager
         end
-        if ok and b then nOk = nOk + 1 else tMissing[#tMissing + 1] = tgt.k end
+        if ok and b then nOk = nOk + 1 else tStill[#tStill + 1] = tgt; tNames[#tNames + 1] = tgt.k end
     end
-    GameState.bInstalled = true
-    Log.Write("GameState installiert: " .. nOk .. "/" .. #GameState.tTargets .. " Setter erfasst"
-        .. (#tMissing > 0 and (" (fehlen: " .. table.concat(tMissing, ", ") .. ")") or ""))
+    GameState.tMissing = tStill
+    local nAll = #GameState.tTargets
+    if bLog or nOk > 0 then
+        Log.Write("GameState: " .. (nAll - #tStill) .. "/" .. nAll .. " Setter erfasst"
+            .. (#tStill > 0 and (" (fehlen: " .. table.concat(tNames, ", ") .. ")") or ""))
+    end
     return nOk
 end
 

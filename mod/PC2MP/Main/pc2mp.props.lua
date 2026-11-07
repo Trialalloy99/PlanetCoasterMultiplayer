@@ -11,8 +11,12 @@
 --/    Atmosphäre:  scenery:GetSceneryAtmosphereType(nPartID, true) / scenery:SetSceneryAtmosphereType(nPartID, n)  (direkt)
 --/    Name:        scenery:GetRawNameOverride(nPartID) / scenery:OverridePropName(nPartID, s)                   (direkt)
 --/
+--/    Animation/Auslöser + Event-Ablauf-Steuerung: pc2mp.sequencer
+--/
 --/  Format (JSON-tauglich):
---/    props = { colours = { {tag=<sTag>, c={r,g,b}}, ... }, cookie = "...", atmos = n, name = "..." }
+--/    props = { colours = { {tag=<sTag>, c={r,g,b}}, ... }, cookie = "...", atmos = n, name = "...",
+--/              anim = {loop, type, ctrl, dur, strobe}, seqr = {set = {...}, music = "...", prog = {tracks = ...}} }
+--/  Teil-Verweise im Programm (seqr.prog): Props.fnPartToRef / Props.fnRefToPart (Sync: netId, Testmodus: Zwilling).
 -----------------------------------------------------------------------
 local global = _G
 local api = global.api
@@ -28,6 +32,13 @@ local require = global.require
 
 local Props = {}
 Props.bLog = true
+Props.fnPartToRef = function(n) return n end
+Props.fnRefToPart = function(r) return global.math.tointeger(tonumber(r)) end
+
+local function Seq()
+    local ok, S = pcall(require, "pc2mp.sequencer")
+    return ok and S or nil
+end
 
 local function Log(s)
     local ok, L = pcall(require, "pc2mp.log")
@@ -97,6 +108,13 @@ function Props.Describe(tw, nPartID, nEntityID)
         local sName = TryCall(sc, "GetRawNameOverride", nPartID)
         if type(sName) == "string" and sName ~= "" then p.name = sName; n = n + 1 end
     end
+    local S = Seq()
+    if S then
+        local okA, a = pcall(S.DescribeAnim, tw, nPartID)
+        if okA and a then p.anim = a; n = n + 1 end
+        local okQ, q = pcall(S.DescribeSequencer, tw, nPartID, Props.fnPartToRef)
+        if okQ and q then p.seqr = q; n = n + 1 end
+    end
     if n == 0 then return nil end
     return p
 end
@@ -128,7 +146,9 @@ end
 -- Normalisiert Props aus dem Netz (String-Schlüssel) in die Form von Describe
 function Props.Normalize(p)
     if type(p) ~= "table" then return nil end
-    local o = { cookie = p.cookie, atmos = p.atmos, name = p.name }
+    local S = Seq()
+    local o = { cookie = p.cookie, atmos = p.atmos, name = p.name,
+                anim = S and S.Norm(p.anim) or p.anim, seqr = S and S.Norm(p.seqr) or p.seqr }
     if p.colours ~= nil then
         o.colours = {}
         for _, e in ipairs(List(p.colours)) do
@@ -141,9 +161,27 @@ end
 
 local function Near(a, b) return math.abs(a - b) < 0.002 end
 
+-- tiefer Vergleich (Zahlen mit Toleranz, Schlüssel "1" == 1)
+local function DeepEq(a, b, nDepth)
+    if type(a) == "number" and type(b) == "number" then return Near(a, b) end
+    if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+    if (nDepth or 0) > 12 then return true end
+    local function Get(t, k)
+        local v = t[k]
+        if v == nil and type(k) == "string" then v = t[tonumber(k) or k] end
+        if v == nil and type(k) == "number" then v = t[tostring(k)] end
+        return v
+    end
+    for k, v in pairs(a) do if not DeepEq(v, Get(b, k), (nDepth or 0) + 1) then return false end end
+    for k, v in pairs(b) do if Get(a, k) == nil and v ~= nil then return false end end
+    return true
+end
+Props.DeepEq = DeepEq
+
 function Props.Equal(a, b)
     if a == nil or b == nil then return a == b end
     if a.cookie ~= b.cookie or a.atmos ~= b.atmos or a.name ~= b.name then return false end
+    if not DeepEq(a.anim, b.anim) or not DeepEq(a.seqr, b.seqr) then return false end
     local ca, cb = a.colours or {}, b.colours or {}
     if #ca ~= #cb then return false end
     for i = 1, #ca do
@@ -185,6 +223,11 @@ function Props.Matches(tWanted, tActual)
         if c == nil then return false end
         for j = 1, 3 do if not Near(c[j], e.c[j]) then return false end end
     end
+    if tWanted.anim ~= nil then
+        local w, h = tWanted.anim, tActual.anim or {}
+        if w.loop ~= h.loop or (w.ctrl ~= nil and w.ctrl ~= h.ctrl) or (w.ctrl == false and w.type ~= h.type) then return false end
+    end
+    if tWanted.seqr ~= nil and not DeepEq(tWanted.seqr, tActual.seqr) then return false end
     return true
 end
 
@@ -213,6 +256,17 @@ function Props.ApplyInEdit(tw, clh, eo, nPartID, p)
         local ok, err = pcall(tw.scenery.SetLightCookieName, tw.scenery, eo, p.cookie)
         if ok then n = n + 1 elseif Props.bLog then Log("Props: Lichtmuster Fehler: " .. tostring(err)) end
     end
+    local S = Seq()
+    if S and eo ~= nil then
+        if p.anim then
+            local ok, r = pcall(S.ApplyAnimInEdit, tw, clh, eo, nPartID, p.anim)
+            if ok then n = n + r elseif Props.bLog then Log("Props: Animation Fehler: " .. tostring(r)) end
+        end
+        if p.seqr then
+            local ok, r = pcall(S.ApplySequencerInEdit, tw, clh, eo, nPartID, p.seqr, Props.fnRefToPart)
+            if ok then n = n + r elseif Props.bLog then Log("Props: Ablaufsteuerung Fehler: " .. tostring(r)) end
+        end
+    end
     return n
 end
 
@@ -229,13 +283,19 @@ function Props.ApplyDirect(tw, nPartID, p)
         local cur = TryCall(tw.scenery, "GetRawNameOverride", nPartID)
         if cur ~= p.name and pcall(tw.scenery.OverridePropName, tw.scenery, nPartID, p.name) then n = n + 1 end
     end
+    local S = Seq()
+    if S and p.anim then
+        local ok, r = pcall(S.ApplyAnimDirect, tw, nPartID, p.anim)
+        if ok then n = n + r end
+    end
     return n
 end
 
 -- Braucht dieses Props-Objekt eine Edit-Hierarchie (Farben/Lichtmuster)?
 function Props.NeedsEdit(p)
     p = Props.Normalize(p)
-    return p ~= nil and ((p.colours and #p.colours > 0) or p.cookie ~= nil)
+    return p ~= nil and ((p.colours and #p.colours > 0) or p.cookie ~= nil or p.seqr ~= nil
+        or (p.anim ~= nil and (p.anim.loop ~= nil or p.anim.ctrl ~= nil)))
 end
 
 return Props

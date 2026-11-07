@@ -149,6 +149,9 @@ function Menu.HandleCmd(t)
         api.pc2mp.tJoin = { room = t.room, lastSeq = t.lastSeq }
         ok, sMsg = Menu.Load(t.save)
         if not ok then api.pc2mp.tJoin = nil end
+    elseif t.cmd == "testbreakdown" then
+        local okB, BD = pcall(require, "pc2mp.breakdowns")
+        if okB and api.pc2mp and api.pc2mp.bInPark then ok, sMsg = BD.TriggerTest() else ok, sMsg = false, "nicht im Park" end
     elseif t.cmd == "testmode" then
         ok = TestMode.Set(t.on == true, tonumber(t.offset))
         sMsg = (t.on == true) and "Testmodus an" or "Testmodus aus"

@@ -162,6 +162,15 @@ handle('game-status', () => {
   return game.status();
 });
 handle('set-testmode', setTestMode);
+handle('test-breakdown', async () => {
+  ensureGame();
+  const st = await game.status();
+  if (!st.responding || st.mode !== 'park') throw new Error('Bitte erst einen Park laden');
+  const r = await game.sendAndWait({ cmd: 'testbreakdown' });
+  if (!r.ok) throw new Error(r.msg);
+  log(`Test: ${r.msg}`);
+  return r.msg;
+});
 handle('worlds', worlds);
 handle('load-world', loadWorld);
 handle('create-server', createServer);

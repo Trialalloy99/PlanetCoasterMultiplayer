@@ -41,6 +41,8 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
   **Ingame-Test offen**): Farben/Lichtfarbe, Lichtmuster, Name in `upsert.props`; Park öffnen/Name/Preise,
   Sandbox-Einstellungen, Werbung (GuestBucketManager) als `op="call"`; Wege-Spiegel verschob Farben (Bug behoben);
   Dev-UI-Tab „Testmodus“ (Zwilling im eigenen Park, kein zweiter Spieler nötig) → `docs/findings/props-settings.md`
+  Dazu: animierte Szenerie (Schleifentyp/Auslöser), Event-Ablauf-Steuerung (Programm/Einstellungen/Musik), Zeit
+  (Pause/Geschwindigkeit/feste Uhrzeit), Wetter erzwingen, Defekte von Fahrgeschäften. Testmodus im Spiel bestätigt (Licht-Farben).
 - [maxi] **#21 Dev-UI + zentraler Server (Rooms)**, gemergt: Hauptmenü-Steuerung im Spiel bestätigt (Welten auflisten,
   per Befehl laden). Server mit Rooms live auf dem VPS. `devui/` (Electron), Join, New Server, Auto-Upload nach Speichern,
   Quick-Save beim Join (`pc2mp.saveupload`) – **Join/Upload/Quick-Save im Spiel noch NICHT getestet.**

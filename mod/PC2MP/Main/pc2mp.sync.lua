@@ -179,6 +179,12 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Defekt eines Fahrgeschäfts (pc2mp.breakdowns), Station über die Position
+    if a.op == "breakdown" then
+        local okB, BD = pcall(require, "pc2mp.breakdowns")
+        if okB then BD.ApplyRemote(a, tostring(msg.clientId)) end
+        return
+    end
     -- Park-Einstellungen, Marketing (pc2mp.gamestate): Methode mit gleichen Argumenten aufrufen
     if a.op == "call" then
         local okG, GameState = pcall(require, "pc2mp.gamestate")
@@ -328,6 +334,16 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    local okBD, BD = pcall(require, "pc2mp.breakdowns")
+    if okBD then
+        BD.nOffsetX = 0
+        BD.tListeners = { function(tAction)
+            if Sync.bActive then SendAction(tAction) end
+        end }
+    end
+    -- Ablaufsteuerung: Ereignisse verweisen auf Objekte -> über netId übertragen
+    Props.fnPartToRef = function(n) local H = Sync.tByPart[n]; return H and H.netId or nil end
+    Props.fnRefToPart = function(r) local H = Sync.tByNet[r]; return H and H.partID or nil end
     SaveUpload.Persist = Sync.Persist
     SaveUpload.fnSend = Net.Send
     SaveUpload.fnCanUpload = function() return Sync.bActive and not Sync.bWaitConnect and Net.IsConnected() end

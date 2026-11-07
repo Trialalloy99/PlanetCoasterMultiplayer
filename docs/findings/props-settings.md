@@ -71,3 +71,47 @@ Methoden deshalb auf dem echten Objekt per `rawset` überschreiben, nicht auf de
 ## Bekannte Lücke
 Objekte aus dem Basis-Spielstand (vor dem Multiplayer gebaut) haben keine netId. Ändert man sie (auch die Farbe),
 schickt Sync ein `upsert` mit `localId` → beim Mitspieler entsteht ein Duplikat. Betrifft Verschieben schon vorher.
+
+## 8. Animierte Szenerie (Schleifentyp, Auslöser) — pc2mp.sequencer
+- Lesen: `sequence:IsTriggerTargetPropData(id)`, `GetTriggerTargetPropData(id)` → `{nAnimLoop, nType, ...}`,
+  `GetPartTriggerControlled/GetPartTriggerDuration/GetPartTriggerStrobe(id)`
+- Setzen in der Edit-Hierarchie: `SetLoopAnim(eo, n)` + `CreateEditOperationForDatastoreChange(clh, id, DatastoreChange_LoopAnim)`,
+  `SetTriggerControlledMoveObject(eo, b)`, `SetTriggerBehaviourMoveObject(eo, nType)` (+ `DatastoreChange_Behaviour` /
+  `DatastoreChange_TriggerControlled`), direkt: `SetTriggerDurationPart(id, n)`, `SetTriggerStrobePart(id, n)` (kein Commit!
+  → wir wrappen beide Setter und `TriggerTargetPropDataChangedMessage {nPartID}`).
+
+## 9. Event-Ablauf-Steuerung (Display-Sequencer) — pc2mp.sequencer
+- `sequence:IsSequencerPropData(id)`; Einstellungen `GetSequencerTriggerSettings(id)` (Tabelle: nTriggerMode, nLoopMode,
+  bRestrictActivationTimes, n*RestrictedActivationTime, tShowTimes) / `SetSequencerTriggerSettingsMoveObject(eo, t)`
+  + `CreateEditOperationForSequencerDatastoreChange(clh, id, SequencerDatastoreChange_TriggerSettings)`
+- Musik: `gameaudio:GetSequencerEvent(id)` / `sequence:SetSequencerCustomMusicMoveObject(eo, s)`
+- Programm: `GetSequencerTriggerSequence(id)` → natives Objekt. Wurzel = Spuren (`CountItems`, `GetSequenceItemFromIndex(i)`
+  → Verzögerung, Spur-Sequenz). Spur: `GetSequenceItems(true).tItemIDs`, `GetItemIsGroup(i)`, Gruppe =
+  `GetSequenceItemFromIndex(i)` → Start, Unter-Sequenz; Ereignis: `GetEventItemFromIndex(i)` → PartID,
+  `GetEvent{Delay,Type,Duration,Strobe,FadeDuration,FadeToColour,UIColour}WithItemID(id)`.
+  Nachbau: `CreateDeepCopy` der Ziel-Sequenz, alles entfernen, `AddBlankSequenceItem(t, nColourInt, bGroup)` → (Sequenz, ItemID),
+  `AddEventItem(t, nPart, nUIMode, vUIColour[, nDuration])`, `SetEvent*WithItemID`, `SetSequenceItemWithItemID`,
+  `SetSequencerTriggerSequenceMoveObject(eo, oRoot)`. Ereignis-Ziele werden als netId übertragen (Testmodus: Zwilling).
+- Nicht übertragen: `GetEventFlexiColoursWithItemID` (Format unklar), Kameras/Lautsprecher der Steuerung.
+
+## 10. Zeit / Wetter (MainHUD, `api.world.GetScript(api.world.GetActive()).mainHUD`)
+`ChangeSimulationSpeedSettings(bPause|nil, nIndex|nil)`, `ChangeFixedSunEnabled/ChangeFixedSunTime`,
+`EnableApparentTime/ChangeApparentTimeSettings`, `SetWeatherOverride(n)`. Das HUD existiert evtl. erst nach unserem
+Manager → Nachversuch alle 60 Frames. **Nicht synchronisierbar gefunden:** die Park-Uhr selbst (nur `park:GetParkDay`,
+keine Setz-API; `ScenarioManager.SetParkTime` ist nur ein Szenario-Wert) und das Zufallswetter (keine Lese-API für das
+aktuelle Wetter). Mit gleicher Geschwindigkeit/Pause und gemeinsamem Spielstand laufen die Uhren aber gleich schnell.
+
+## 11. Defekte — pc2mp.breakdowns
+`rides:GetAllRides()`, `rides:GetStationsForRide(id)`, `ridestation:IsBrokenDown(s)`, `ridestation:TriggerBreakdown(s)`.
+Keine Message → alle 60 Frames abfragen; Station über die Weltposition zuordnen. `{op="breakdown", pos}`.
+Toiletten/Shops: nur Sauberkeit/Vandalismus (`park:IsVandalised`, keine Setz-API) → `park:RepairAllVandalisedItems()` wird übertragen.
+
+## 12. Gäste
+Gäste werden im nativen Code simuliert (Zufall, tausende Entities). Keine Lua-API zum Setzen von Gäste-Zuständen
+gefunden → nicht synchronisierbar ohne nativen Eingriff. Was die Gäste beeinflusst (Preise, Werbung, Sandbox-Regeln,
+Zeit, Park offen/zu, Szenerie) ist synchron, die Gäste selbst laufen auf jedem Client eigenständig.
+
+## Beobachtung im Spiel (2026-11-07, Finn, Testmodus)
+Licht `bl_animated_light` (4 Farben) und 3D-Schrift-Farben: Zwilling + Farbänderungen ✔. Park-Setter 11/11 ✔.
+Nebenwirkung: zwei vorhandene Bus-Gästespawner (`facility_guestspawner_coach`, PartID 3/4) wurden ebenfalls gespiegelt
+(sie wurden irgendwann im Commit-Fenster festgeschrieben) → sollte ausgeschlossen werden.
