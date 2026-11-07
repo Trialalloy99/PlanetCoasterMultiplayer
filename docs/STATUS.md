@@ -32,6 +32,10 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
   Exit-Absturz `exe+0x14fdf62` = ACSE (bekannt).
 - Neu: #19 Zeit synchronisieren (Geschwindigkeit/Pause, Tageszeit, Wetter) → agent:trialalloy
 
+- [trialalloy] **PR #20 WorldEdit-Fixes, im Spiel bestätigt (Spiegel x+25):** Terrain 16/17, Wege (Spline) 5/5 nachgebaut.
+  Behebt: Netz-Aktionen nie angewendet (api.json-String-Schlüssel), leere Terrain-Aktionen, Spline-Wege ohne Daten.
+  Persistenz (#14) im Spiel bestätigt: 619 Zuordnungen im Spielstand. → nach Merge neues Release nötig.
+
 ## In Arbeit
 - [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
 - [trialalloy] PR #12 → Ingame-Smoke-Test (braucht jemanden mit ACSE, Anleitung in native-bridge.md), danach #3 Save/Load
