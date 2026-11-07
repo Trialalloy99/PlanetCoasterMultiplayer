@@ -65,6 +65,22 @@ GameState.tTargets = {
     { k = "sandbox.SetSandboxSettings", iface = "Interfaces.ISandboxSettingsManager", m = "SetSandboxSettings" },
     -- event: jeder Aufruf zählt (keine Doppel-Unterdrückung), z. B. "alles reparieren"
     { k = "park.RepairAllVandalisedItems", api = "park", m = "RepairAllVandalisedItems", event = true },
+    -- Läden/Toiletten (Entity über Position, pc2mp.entref); slot = Anzahl Argumente, die einen Eintrag unterscheiden
+    { k = "fac.SetOpen", api = "facilities", m = "SetOpen", ents = { "facility" }, slot = 1 },
+    { k = "fac.SetShouldAutoHire", api = "facilities", m = "SetShouldAutoHire", ents = { "facility" }, slot = 1 },
+    { k = "shop.SetShopItemPrice", api = "facilities", m = "SetShopItemPrice", ents = { "shopinv" }, slot = 2, debounce = true },
+    { k = "shop.SetAllShopItemPrice", api = "facilities", m = "SetAllShopItemPrice", ents = { "shopinv" }, slot = 1, debounce = true },
+    { k = "shop.SetShopItemSold", api = "facilities", m = "SetShopItemSold", ents = { "shopinv" }, slot = 2 },
+    { k = "shop.SetShopIsFairPrice", api = "facilities", m = "SetShopIsFairPrice", ents = { "shopinv" }, slot = 1 },
+    { k = "shop.SetShopItemCustomName", api = "facilities", m = "SetShopItemCustomName", ents = { "shopinv" }, slot = 2, debounce = true },
+    -- Mitarbeiter (Entity über den Namen)
+    { k = "staff.FireStaffMember", api = "staff", m = "FireStaffMember", ents = { "staff" }, event = true },
+    { k = "staff.SetStaffUIName", api = "staff", m = "SetStaffUIName", ents = { "staff" }, slot = 1, event = true },
+    { k = "staff.SetStaffMemberSalaryTier", api = "staff", m = "SetStaffMemberSalaryTier", ents = { "staff" }, slot = 1 },
+    { k = "staff.SetStaffMemberMonthlySalary", api = "staff", m = "SetStaffMemberMonthlySalary", ents = { "staff" }, slot = 1, debounce = true },
+    { k = "staff.ScheduleAssignSpecificLocation", api = "staff", m = "ScheduleAssignSpecificLocation",
+      ents = { "staff", nil, "place" }, slot = 2, event = true },
+    { k = "staff.SetStaffMemberParkZone", api = "staff", m = "SetStaffMemberParkZone", ents = { "staff" }, slot = 1 },
     { k = "time.Speed", hud = true, m = "ChangeSimulationSpeedSettings" },
     { k = "time.FixedSunEnabled", hud = true, m = "ChangeFixedSunEnabled" },
     { k = "time.FixedSunTime", hud = true, m = "ChangeFixedSunTime", debounce = true },
@@ -121,7 +137,35 @@ end
 
 local function SlotKey(tgt, tArgs)
     if tgt.idx then return tgt.k .. "#" .. tostring(tArgs[1]) end
+    if tgt.slot then
+        local t = {}
+        for i = 1, tgt.slot do t[i] = tArgs[i] end
+        local okJ, bOk, s = pcall(api.json.Stringify, t)
+        return tgt.k .. "#" .. ((okJ and bOk and s) or tostring(tArgs[1]))
+    end
     return tgt.k
+end
+
+local function EntRef()
+    local ok, ER = pcall(require, "pc2mp.entref")
+    return ok and ER or nil
+end
+
+-- vor dem Original-Aufruf: Entity-Argumente beschreiben (z. B. Name VOR dem Umbenennen)
+function GameState.PreCall(sKey, tArgs)
+    local tgt = GameState.tByKey[sKey]
+    if tgt == nil or tgt.ents == nil or GameState.bApplying or (api.pc2mp and api.pc2mp.bEcoApplying) then return nil end
+    local ER = EntRef()
+    if ER == nil then return nil end
+    local tRefs = {}
+    for i = 1, 4 do
+        local sKind = tgt.ents[i]
+        if sKind ~= nil then
+            local okR, r = pcall(ER.Ref, sKind, tArgs[i])
+            tRefs[i] = okR and r or false
+        end
+    end
+    return tRefs
 end
 
 ---------------------------------------------------------------------
@@ -138,11 +182,27 @@ function GameState.IsLive()
     return GameState.bInstalled and GameState.nFrame >= GameState.nWarmupFrames
 end
 
-function GameState.OnCall(sKey, tArgs, nArgs)
+local function Applying()
+    return GameState.bApplying or (api.pc2mp ~= nil and api.pc2mp.bEcoApplying == true)
+end
+
+function GameState.OnCall(sKey, tArgs, nArgs, tRefs)
     local tgt = GameState.tByKey[sKey]
-    if tgt == nil or GameState.bApplying then return end
+    if tgt == nil or Applying() then return end
     local tA = {}
     for i = 1, nArgs do tA[i] = Plain(tArgs[i]) end
+    if tgt.ents then
+        for i = 1, 4 do
+            if tgt.ents[i] ~= nil then
+                local r = tRefs and tRefs[i]
+                if not r then
+                    if GameState.IsLive() then Note(sKey .. ": Ziel nicht beschreibbar (Argument " .. i .. "), nicht gesendet") end
+                    return
+                end
+                tA[i] = r
+            end
+        end
+    end
     local sSlot = SlotKey(tgt, tA)
     local sJson = ToJson(tA) or Log.ToStr(tA)
     if not GameState.IsLive() then
@@ -184,17 +244,23 @@ end
 -- Gemeinsame Einsprungstelle (über api, damit ältere Wrapper nach Park-Wechsel das aktuelle Modul rufen)
 local function Hub()
     api.pc2mp = api.pc2mp or {}
-    api.pc2mp.fnGameStateCall = function(sKey, tArgs, nArgs)
-        local ok, err = pcall(GameState.OnCall, sKey, tArgs, nArgs)
+    api.pc2mp.fnGameStatePre = function(sKey, tArgs)
+        local ok, r = pcall(GameState.PreCall, sKey, tArgs)
+        return ok and r or nil
+    end
+    api.pc2mp.fnGameStateCall = function(sKey, tArgs, nArgs, tRefs)
+        local ok, err = pcall(GameState.OnCall, sKey, tArgs, nArgs, tRefs)
         if not ok then Log.Write("GameState: Erfassung " .. tostring(sKey) .. " Fehler: " .. tostring(err)) end
     end
 end
 
 local function MakeWrapper(sKey, fnOrig)
     return function(self, ...)
+        local fnPre = api.pc2mp and api.pc2mp.fnGameStatePre
+        local tRefs = fnPre and fnPre(sKey, { ... }) or nil
         local tRet = table.pack(fnOrig(self, ...))
         local fn = api.pc2mp and api.pc2mp.fnGameStateCall
-        if fn then fn(sKey, { ... }, global.select("#", ...)) end
+        if fn then fn(sKey, { ... }, global.select("#", ...), tRefs) end
         return table.unpack(tRet, 1, tRet.n)
     end
 end
@@ -328,6 +394,24 @@ function GameState.ApplyRemote(a, sFrom)
     local tArgs, nMax = ArgList(a.a)
     local n = math.max(tonumber(a.n) or 0, nMax)
     local sSlot = SlotKey(tgt, tArgs)
+    if tgt.ents then
+        local ER = EntRef()
+        for i = 1, 4 do
+            local sKind = tgt.ents[i]
+            if sKind ~= nil then
+                local okR, e = pcall(ER.Resolve, sKind, type(tArgs[i]) == "table" and ArgList(tArgs[i]) and tArgs[i] or nil)
+                if not okR or e == nil then
+                    Note(tgt.k .. " von " .. tostring(sFrom) .. ": Ziel (" .. sKind .. ") hier nicht gefunden")
+                    return false
+                end
+                tArgs[i] = e
+            end
+        end
+        -- Testmodus: Zwillings-Mitarbeiter behält beim Umbenennen den Zusatz
+        if tgt.k == "staff.SetStaffUIName" and ER.sNameSuffix and type(tArgs[2]) == "string" then
+            tArgs[2] = tArgs[2] .. ER.sNameSuffix
+        end
+    end
     GameState.tLast[sSlot] = ToJson(tArgs) or GameState.tLast[sSlot]
     GameState.tPending[sSlot] = nil
     GameState.bApplying = true

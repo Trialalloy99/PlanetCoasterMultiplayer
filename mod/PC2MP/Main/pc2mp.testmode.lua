@@ -17,6 +17,7 @@ local tostring = global.tostring
 local tonumber = global.tonumber
 local table = global.table
 local ipairs = global.ipairs
+local math = global.math
 local require = global.require
 local Log = require("pc2mp.log")
 
@@ -126,6 +127,21 @@ function TestMode.ApplyInPark(bWanted)
         BD.nOffsetX = nOff
         BD.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
         BD.tListeners = { function(a) BD.ApplyRemote(a, "Testmodus") end }
+        -- Läden/Personal: Einstellungen wirken im Test auf den Zwilling (Laden bei +Versatz, Mitarbeiter "... (Test)")
+        local ER = require("pc2mp.entref")
+        ER.nOffsetX, ER.sNameSuffix = nOff, " (Test)"
+        local Eco = require("pc2mp.economy")
+        Eco.nOffsetX, Eco.sNameSuffix = nOff, " (Test)"
+        Eco.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
+        Eco.bCashMaster, Eco.bHasPeers, Eco.nCashEvery = true, true, 900
+        local Replay = require("pc2mp.replay")
+        Eco.tListeners = { function(a)
+            if a.op == "cash" then
+                TestMode.Note("Kontostand " .. tostring(math.floor(a.n)) .. " würde an Mitspieler gesendet")
+            elseif a.op == "staff" then
+                Replay.Enqueue("test staff " .. tostring(a.act), function() return Eco.ApplyStaff(a, "Testmodus") end)
+            end
+        end }
         if not t.bActive then TestMode.Note("Testmodus aktiv: Zwilling bei x+" .. tostring(nOff) .. " m") end
     else
         Mirror.bEnabled = false
@@ -135,6 +151,10 @@ function TestMode.ApplyInPark(bWanted)
             WorldEdit.tListeners = {}
             GameState.tListeners = {}
             require("pc2mp.breakdowns").tListeners = {}
+            local Eco = require("pc2mp.economy")
+            Eco.tListeners, Eco.bCashMaster, Eco.nOffsetX, Eco.sNameSuffix = {}, false, 0, nil
+            local ER = require("pc2mp.entref")
+            ER.nOffsetX, ER.sNameSuffix = 0, nil
             TestMode.Note("Testmodus aus")
         end
     end

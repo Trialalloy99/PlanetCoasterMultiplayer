@@ -115,3 +115,26 @@ Zeit, Park offen/zu, Szenerie) ist synchron, die Gäste selbst laufen auf jedem 
 Licht `bl_animated_light` (4 Farben) und 3D-Schrift-Farben: Zwilling + Farbänderungen ✔. Park-Setter 11/11 ✔.
 Nebenwirkung: zwei vorhandene Bus-Gästespawner (`facility_guestspawner_coach`, PartID 3/4) wurden ebenfalls gespiegelt
 (sie wurden irgendwann im Commit-Fenster festgeschrieben) → sollte ausgeschlossen werden.
+
+## 13. Läden, Mitarbeiter, Kontostand — pc2mp.entref / pc2mp.gamestate / pc2mp.economy
+- Entity-IDs sind pro Client verschieden → `pc2mp.entref`: Läden/Orte über Position (`facilities:GetAllFacilityEntityIDs`,
+  `staff:GetAllStaffBuildingEntityIDs`, Fahrgeschäft-Stationen), Sortiment über `facilities:GetShopInventoryEntityID(fac)`,
+  Mitarbeiter über den Namen (`staff:GetAllStaffEntities`, `GetStaffUIName`/`SetStaffUIName`).
+- Läden: `facilities:SetOpen(e, b)`, `SetShouldAutoHire(e, b)`, `SetShopItemPrice(inv, i, n)`, `SetAllShopItemPrice(inv, n)`,
+  `SetShopItemSold(inv, i, b)`, `SetShopIsFairPrice(inv, b)`, `SetShopItemCustomName(inv, i, s)` (FacilityInfoPopUpGameface).
+  „Offen, aber kein Mitarbeiter“ ist kein eigener Zustand, sondern folgt aus offen + Personal.
+- Mitarbeiter: `staff:FireStaffMember(e)`, `SetStaffUIName`, `SetStaffMemberSalaryTier`, `SetStaffMemberMonthlySalary`,
+  `ScheduleAssignSpecificLocation(e, nSchedule, eOrt)`, `SetStaffMemberParkZone`.
+  Einstellen (StaffPlacementMode): `GenerateRandomStaff(prefab, x, token)` → `SetStaffMemberSuspended(e, true)` →
+  Absetzen: `api.transform.SetPosition`, `SetStaffMemberSuspended(e, false, pool)`, `SetStaffMemberParkZone`.
+  → `{op="staff", act="hire"|"move", prefab, x, pos, name}`; der Mitspieler bekommt denselben Namen.
+- Kontostand: `money:GetCash()`, `money:ModifyCash(n, park.ExpenditureCategory_Uncategorised[, false])`; keine SetCash-API.
+  Kassenwart = kleinste Client-ID im Room (welcome.clients + join/leave), sendet alle 180 Frames `{op="cash", n}`,
+  die anderen gleichen die Differenz an. Die Aufschlüsselung (Einnahmen/Ausgaben je Kategorie) bleibt lokal.
+
+## 14. Gäste — Recherche
+Aus Lua gibt es keine API zum Erzeugen/Entfernen/Versetzen einzelner Gäste oder zum Abschalten ihrer KI
+(guests: nur `SetGuestNeed`, Spawn-Regeln/-Gewichte, `RequestSuspendGroup`/`StartUnsuspendGroup`, `SetPeepHidden`).
+Der Algorithmus ist nativer C++-Code in der Denuvo-geschützten Exe → nicht auf dem Server ausführbar.
+Möglicher Weg (eigenes Projekt): Host simuliert Gäste; bei den anderen Spawn aus (`SetParkOpenForGuests(false)` bzw.
+Spawn-Gewichte 0) und „Puppen“ per `api.entity.InstantiatePrefab` + Positions-Stream; dafür nötig: natives RE der Gäste-Entities.

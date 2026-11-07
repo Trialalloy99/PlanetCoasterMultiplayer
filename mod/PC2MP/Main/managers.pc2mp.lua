@@ -24,6 +24,7 @@ local Menu = require("pc2mp.menu")
 local GameState = require("pc2mp.gamestate")
 local TestMode = require("pc2mp.testmode")
 local Breakdowns = require("pc2mp.breakdowns")
+local Economy = require("pc2mp.economy")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -74,6 +75,10 @@ function PC2MPManager.Activate(self)
     GameState.tListeners = {}
     Breakdowns.tListeners = {}
     pcall(Breakdowns.Install, tWorldAPIs)
+    Economy.tListeners = {}
+    Economy.bCashMaster = false
+    local okEc, errEc = pcall(Economy.Install, tWorldAPIs)
+    if not okEc then Log.Write("Economy.Install Fehler: " .. tostring(errEc)) end
     local okGS, errGS = pcall(GameState.Install, tWorldAPIs, tEnv)
     if not okGS then Log.Write("GameState.Install Fehler: " .. tostring(errGS)) end
 
@@ -112,6 +117,8 @@ function PC2MPManager.Advance(self, _nDeltaTime)
     if not ok then Log.Write("Replay.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(WorldEdit.Tick)
     if not ok then Log.Write("WorldEdit.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(Economy.Tick)
+    if not ok then Log.Write("Economy.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Breakdowns.Tick)
     if not ok then Log.Write("Breakdowns.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(GameState.Tick)

@@ -55,7 +55,8 @@ package.preload["Vector3"] = function()
     function V:GetZ() return self.z end
     return V
 end
-for _, m in ipairs({ "pc2mp.props", "pc2mp.sequencer", "pc2mp.gamestate", "pc2mp.breakdowns" }) do preload(m) end
+for _, m in ipairs({ "pc2mp.props", "pc2mp.sequencer", "pc2mp.gamestate", "pc2mp.breakdowns", "pc2mp.economy",
+                     "pc2mp.entref" }) do preload(m) end
 local Vector3 = require("Vector3")
 local Props = require("pc2mp.props")
 local Seq = require("pc2mp.sequencer")
@@ -279,5 +280,101 @@ check(okT == false and sT:find("schon defekt"), "Test-Knopf: alle schon defekt")
 broken = {}
 okT = BD.TriggerTest()
 check(okT and broken[501], "Test-Knopf löst einen Defekt aus")
+
+-- ---------------------------------------------------------------- 5. Läden + Mitarbeiter (Entity-Zuordnung) + Kontostand
+local ER = require("pc2mp.entref")
+local facPos = { [701] = { 100, 0, 0 }, [702] = { 125, 0, 0 } }  -- 702 = Zwilling von 701 (+25)
+local staffPos = {}
+local open, inv, names = {}, { [701] = 801, [702] = 802 }, { [901] = "Anna Schmidt" }
+local prices = {}
+local cash = 5000
+local fired = {}
+api.transform.CalculateWorldTransform = function(e)
+    local p = facPos[e] or stationPos[e] or staffPos[e]
+    if p == nil then return nil end
+    return { GetPos = function() return { GetX = function() return p[1] end, GetY = function() return p[2] end, GetZ = function() return p[3] end } end }
+end
+api.transform.SetPosition = function(e, v) staffPos[e] = { v:GetX(), v:GetY(), v:GetZ() } end
+local FacMT = { __index = {
+    GetAllFacilityEntityIDs = function() return { 701, 702 } end,
+    SetOpen = function(_, e, b) open[e] = b end,
+    GetShopInventoryEntityID = function(_, e) return inv[e] end,
+    SetShopItemPrice = function(_, i, n, p) prices[i .. ":" .. n] = p end,
+} }
+local nextStaff = 950
+local tok = {}
+local twE = {
+    facilities = setmetatable({}, FacMT),
+    staff = { GetAllStaffEntities = function() local o = {}; for e in pairs(names) do o[#o + 1] = e end; return o end,
+              GetStaffUIName = function(_, e) return names[e] end,
+              SetStaffUIName = function(_, e, s) names[e] = s end,
+              FireStaffMember = function(_, e) fired[e] = true; names[e] = nil end,
+              GenerateRandomStaff = function(_, prefab, x, t) nextStaff = nextStaff + 1; names[nextStaff] = "Zufall " .. nextStaff; return nextStaff end,
+              SetStaffMemberSuspended = function() end, SetStaffMemberParkZone = function() end,
+              GetAllStaffBuildingEntityIDs = function() return {} end },
+    park = { GetParkZoneIDFromPoint = function() return 1 end, ExpenditureCategory_Uncategorised = 99 },
+    money = { GetCash = function() return cash end, ModifyCash = function(_, n, c) cash = cash + n; LASTCAT = c end },
+    rides = { GetAllRides = function() return {} end },
+}
+api.entity = { CreateRequestCompletionToken = function() return tok end, HaveRequestsCompleted = function() return true end }
+ER.tWorldAPIs = twE
+GameState.Install(twE, nil)
+for _ = 1, GameState.nWarmupFrames do GameState.Tick() end
+local sentE = {}
+GameState.tListeners = { function(x) sentE[#sentE + 1] = x end }
+twE.facilities:SetOpen(701, false)
+check(#sentE == 1 and sentE[1].k == "fac.SetOpen" and sentE[1].a[1].pos[1] == 100 and sentE[1].a[2] == false, "Laden schließen: Laden über Position gesendet")
+twE.facilities:SetShopItemPrice(801, 2, 350)
+NOW = 100; GameState.Tick(); NOW = 101; GameState.Tick()
+check(#sentE == 2 and sentE[2].k == "shop.SetShopItemPrice" and sentE[2].a[1].pos[1] == 100 and sentE[2].a[3] == 350, "Preis: Sortiment über die Laden-Position")
+ER.nOffsetX = 25
+local _, sE = api.json.Stringify(sentE[1]); local _, tE = api.json.Parse(sE)
+check(GameState.ApplyRemote(tE, "c2") and open[702] == false and open[701] == false, "Remote/Test: Zwilling-Laden geschlossen")
+local _, sP = api.json.Stringify(sentE[2]); local _, tP = api.json.Parse(sP)
+GameState.ApplyRemote(tP, "c2")
+check(prices["802:2"] == 350, "Remote/Test: Preis im Sortiment des Zwilling-Ladens")
+ER.nOffsetX = 0
+check(#sentE == 2, "kein Echo")
+twE.staff:SetStaffUIName(901, "Anna S.")
+check(#sentE == 3 and sentE[3].a[1].name == "Anna Schmidt" and sentE[3].a[2] == "Anna S.", "Umbenennen: alter Name als Kennung")
+names[905] = "Anna Schmidt"
+local _, sR = api.json.Stringify(sentE[3]); local _, tR = api.json.Parse(sR)
+names[901] = nil
+GameState.ApplyRemote(tR, "c2")
+check(names[905] == "Anna S.", "Remote: Mitarbeiter umbenannt")
+names[901] = "Anna S."; names[905] = nil
+twE.staff:FireStaffMember(901)
+check(#sentE == 4 and sentE[4].k == "staff.FireStaffMember" and sentE[4].a[1].name == "Anna S.", "Entlassen gesendet (Name vor dem Entlassen)")
+
+local Eco = require("pc2mp.economy")
+Eco.Install(twE)
+local ecoOut = {}
+Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
+local eNew = twE.staff:GenerateRandomStaff("Staff_Mechanic", 0, tok)
+staffPos[eNew] = { 50, 0, 50 }
+twE.staff:SetStaffMemberSuspended(eNew, false, nil)
+check(#ecoOut == 1 and ecoOut[1].act == "hire" and ecoOut[1].prefab == "Staff_Mechanic" and ecoOut[1].name == names[eNew], "Einstellen erkannt (Prefab, Position, Name)")
+twE.staff:SetStaffMemberSuspended(eNew, false, nil)
+check(#ecoOut == 2 and ecoOut[2].act == "move", "erneutes Absetzen = Versetzen")
+Eco.nOffsetX, Eco.sNameSuffix = 25, " (Test)"
+local co = coroutine.create(function() return Eco.ApplyStaff(ecoOut[1], "Testmodus") end)
+local okC, bHire = coroutine.resume(co)
+local eTwin = nil
+for e, n2 in pairs(names) do if n2 == names[eNew] .. " (Test)" then eTwin = e end end
+check(okC and bHire and eTwin and staffPos[eTwin][1] == 75, "Zwillings-Mitarbeiter eingestellt, Name übernommen, bei +25")
+check(#ecoOut == 2, "eigenes Einstellen beim Nachspielen nicht erneut gesendet")
+Eco.nOffsetX, Eco.sNameSuffix = 0, nil
+Eco.UpdateMaster("c3", { c7 = true })
+check(Eco.bCashMaster, "kleinste Client-ID ist Kassenwart")
+for _ = 1, Eco.nCashEvery do Eco.Tick() end
+check(ecoOut[#ecoOut].op == "cash" and ecoOut[#ecoOut].n == 5000, "Kassenwart sendet den Kontostand")
+Eco.UpdateMaster("c7", { c3 = true })
+check(not Eco.bCashMaster, "andere Client-ID: kein Kassenwart")
+Eco.ApplyCash({ op = "cash", n = 7250 }, "c3")
+check(cash == 7250 and LASTCAT == 99, "Kontostand angeglichen (Kategorie 'Sonstiges')")
+local nBefore = #ecoOut
+Eco.UpdateMaster("c3", {})
+for _ = 1, Eco.nCashEvery do Eco.Tick() end
+check(#ecoOut == nBefore, "allein im Room: kein Senden")
 
 print("\nALLE SEQUENCER/ZEIT/DEFEKT-TESTS OK")

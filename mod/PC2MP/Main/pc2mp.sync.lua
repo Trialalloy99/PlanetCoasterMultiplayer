@@ -179,6 +179,15 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Mitarbeiter einstellen/versetzen, Kontostand (pc2mp.economy)
+    if a.op == "staff" or a.op == "cash" then
+        local okE, Eco = pcall(require, "pc2mp.economy")
+        if okE and a.op == "cash" then Eco.ApplyCash(a, tostring(msg.clientId)) end
+        if okE and a.op == "staff" then
+            Replay.Enqueue("staff " .. tostring(a.act), function() return Eco.ApplyStaff(a, tostring(msg.clientId)) end)
+        end
+        return
+    end
     -- Defekt eines Fahrgeschäfts (pc2mp.breakdowns), Station über die Position
     if a.op == "breakdown" then
         local okB, BD = pcall(require, "pc2mp.breakdowns")
@@ -235,12 +244,20 @@ function Sync.OnMessage(msg, sRaw)
         OnIds(msg)
     elseif t == "welcome" then
         Sync.sMyId = msg.clientId
+        Sync.tOnline = {}
+        for _, c in pairs(msg.clients or {}) do
+            if type(c) == "table" and c.clientId ~= nil then Sync.tOnline[c.clientId] = c.name or true end
+        end
+        Sync.UpdateRoles()
         Log.Write("Sync: verbunden als " .. tostring(msg.clientId) .. ", Server-Seq " .. tostring(msg.serverSeq)
             .. ", Spieler online: " .. Log.ToStr(msg.clients))
     elseif t == "caughtUp" then
         Log.Write("Sync: Catch-up fertig bis Seq " .. tostring(msg.serverSeq))
     elseif t == "join" or t == "leave" then
         Log.Write("Sync: " .. t .. " " .. tostring(msg.name or msg.clientId))
+        Sync.tOnline = Sync.tOnline or {}
+        if msg.clientId ~= nil then Sync.tOnline[msg.clientId] = (t == "join") and (msg.name or true) or nil end
+        Sync.UpdateRoles()
     elseif t == "quickSave" then
         -- jemand will joinen: schnell speichern + hochladen (pc2mp.saveupload)
         Log.Write("Sync: Quick-Save angefordert von " .. tostring(msg.by))
@@ -251,6 +268,12 @@ function Sync.OnMessage(msg, sRaw)
     elseif t == "error" then
         Log.Write("Sync: Server-Fehler " .. tostring(msg.code) .. ": " .. tostring(msg.msg))
     end
+end
+
+-- Kassenwart bestimmen (pc2mp.economy)
+function Sync.UpdateRoles()
+    local okE, Eco = pcall(require, "pc2mp.economy")
+    if okE then pcall(Eco.UpdateMaster, Sync.sMyId, Sync.tOnline) end
 end
 
 ---------------------------------------------------------------------
@@ -334,6 +357,16 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    local okEc, Eco = pcall(require, "pc2mp.economy")
+    if okEc then
+        Eco.nOffsetX, Eco.sNameSuffix = 0, nil
+        Eco.nCashEvery = 180
+        Eco.tListeners = { function(tAction)
+            if Sync.bActive then SendAction(tAction) end
+        end }
+    end
+    local okER, ER = pcall(require, "pc2mp.entref")
+    if okER then ER.nOffsetX, ER.sNameSuffix = 0, nil end
     local okBD, BD = pcall(require, "pc2mp.breakdowns")
     if okBD then
         BD.nOffsetX = 0
