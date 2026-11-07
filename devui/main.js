@@ -1,5 +1,9 @@
 // PC2MP Dev-UI (Electron-Hauptprozess): verbindet Spiel (Dateien) und VPS-Server (TCP).
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { execFile } = require('child_process');
+
+const STEAM_APP_ID = 2688950; // Planet Coaster 2
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -119,15 +123,33 @@ async function join(room) {
   if (!r.ok) throw new Error(r.msg);
   st = await game.waitFor(s => (s.refreshes || 0) > nRefresh, 30000);
   if (!st) throw new Error('Spiel hat die Welten nicht neu eingelesen');
-  const fresh = st.saves.filter(s => !idsBefore.has(s.id));
+  let fresh = st.saves.filter(s => !idsBefore.has(s.id));
   log(`Neue Welten im Spiel: ${fresh.map(s => `${s.name} (${s.id})`).join(', ') || 'keine'}`);
-  if (fresh.length === 0) throw new Error('Spiel erkennt den neuen Spielstand nicht (Neustart nötig?)');
+  if (fresh.length === 0) {
+    // Das Spiel liest den Saves-Ordner nur beim Start ein (kein api.save-Aufruf zum Neueinlesen gefunden)
+    // -> Spiel neu starten und danach automatisch weitermachen.
+    ui('join-step', 'Spiel startet neu, damit es den Spielstand sieht (dauert ca. 1 Minute)...');
+    await restartGame();
+    st = await game.waitFor(s => s.fresh && s.mode === 'menu' && s.saves.some(x => !idsBefore.has(x.id)), 300000);
+    if (!st) throw new Error('Spiel ist nach dem Neustart nicht im Hauptmenü angekommen');
+    fresh = st.saves.filter(s => !idsBefore.has(s.id));
+    log(`Nach Neustart: ${fresh.map(s => `${s.name} (${s.id})`).join(', ')}`);
+  }
 
   ui('join-step', 'Öffne die Welt...');
   const r2 = await game.sendAndWait({ cmd: 'join', save: fresh[0].id, room, lastSeq: info.seq });
   if (!r2.ok) throw new Error(r2.msg);
   log(`Join "${room}": Welt wird geladen, danach ${ready.pending} Aktionen nachladen`);
   ui('join-step', null);
+}
+
+async function restartGame() {
+  log('Beende das Spiel...');
+  await new Promise(r => execFile('taskkill', ['/F', '/IM', 'PlanetCoaster2.exe'], { windowsHide: true }, () => r()));
+  for (let i = 0; i < 30 && await game.isRunning(); i++) await sleep(1000);
+  await sleep(3000);
+  log('Starte das Spiel über Steam...');
+  await shell.openExternal(`steam://rungameid/${STEAM_APP_ID}`);
 }
 
 // ------------------------------------------------------------------ Testmodus (alleine testen, pc2mp.testmode)
