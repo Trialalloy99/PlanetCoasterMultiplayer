@@ -4,7 +4,8 @@
 --/  (das Spiel braucht mehrere Frames, bis Teile bereit / Previews fertig sind).
 --/
 --/  Aktion (Format wie von pc2mp.events erzeugt):
---/    { op="upsert", resource="NAT_Tree_...", pos={x,y,z}, rot={ax,ay,az}, scale=1.0 }
+--/    { op="upsert", resource="NAT_Tree_...", pos={x,y,z}, rot={ax,ay,az}, scale=1.0, props={...} }
+--/    props (Farben, Lichtmuster, ...) siehe pc2mp.props
 --/    { op="remove" }
 -----------------------------------------------------------------------
 local global = _G
@@ -16,6 +17,7 @@ local table = global.table
 local coroutine = global.coroutine
 local require = global.require
 local Log = require("pc2mp.log")
+local Props = require("pc2mp.props")
 
 local Vector3 = require("Vector3")
 local Quaternion = require("Quaternion")
@@ -116,6 +118,10 @@ function Replay.DoCreate(tAction, fnBeforeCommit)
     local okId, nNewID = pcall(eo.GetPlacementPartID, eo)
     Log.Write("Replay: neue PartID vor Commit = " .. tostring(okId) .. " " .. tostring(nNewID))
     if okId and nNewID ~= nil and fnBeforeCommit then pcall(fnBeforeCommit, nNewID) end
+    local bPropsDone = not Props.NeedsEdit(tAction.props)
+    if not bPropsDone and okId and nNewID ~= nil then
+        bPropsDone = Props.ApplyInEdit(Replay.tWorldAPIs, clh, eo, nNewID, tAction.props) > 0
+    end
     if tAction.pos then
         pcall(clh.SetCashPos, clh, Vector3:new(tAction.pos[1], tAction.pos[2], tAction.pos[3]))
     end
@@ -129,6 +135,17 @@ function Replay.DoCreate(tAction, fnBeforeCommit)
             Yield()
             nWait = nWait + 1
         end
+    end
+    if bOk and nNewID ~= nil and tAction.props ~= nil then
+        -- Farben/Lichtmuster vor dem Commit nicht gesetzt oder vom Spiel ignoriert -> eigene Edit-Operation
+        if bPropsDone and Props.NeedsEdit(tAction.props) then
+            local tw = Replay.tWorldAPIs
+            local okE, nEnt = pcall(tw.placement.PlacementIDToEntityID, tw.placement, nNewID)
+            bPropsDone = Props.Matches(tAction.props, Props.Describe(tw, nNewID, okE and nEnt or nil))
+            if not bPropsDone then Log.Write("Replay: Farben nach dem Erstellen fehlen -> Nachbearbeitung") end
+        end
+        if not bPropsDone then Replay.DoEdit(nNewID, { props = tAction.props }) end
+        Props.ApplyDirect(Replay.tWorldAPIs, nNewID, tAction.props)
     end
     return bOk and nNewID or nil, bOk
 end
@@ -144,7 +161,10 @@ function Replay.DoEdit(nPartID, tAction)
         return false
     end
     ApplyTransformAndScale(eo, tAction)
-    return PreviewAndCommit(clh)
+    if tAction.props ~= nil then Props.ApplyInEdit(Replay.tWorldAPIs, clh, eo, nPartID, tAction.props) end
+    local bOk = PreviewAndCommit(clh)
+    if bOk and tAction.props ~= nil then Props.ApplyDirect(Replay.tWorldAPIs, nPartID, tAction.props) end
+    return bOk
 end
 
 -- Löschen wie das Spiel selbst (SelectAndEditComponent.QuickDeleteObject):

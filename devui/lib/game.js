@@ -16,6 +16,18 @@ function asArray(v) {
   return [];
 }
 
+// Testmodus-Status aus pc2mp.testmode (api.json: log kommt als {"1":..} )
+function normTest(t) {
+  if (!t || typeof t !== 'object') return null;
+  return {
+    on: !!t.on,
+    active: !!t.active,
+    offset: Number(t.offset) || 25,
+    count: Number(t.count) || 0,
+    log: asArray(t.log).map(String),
+  };
+}
+
 class GameLink {
   constructor(dataDir) {
     this.dataDir = dataDir;
@@ -57,6 +69,7 @@ class GameLink {
       park: st && st.fresh ? st.park : null,
       saves: st && st.fresh ? st.saves : [],
       refreshes: st ? st.refreshes || 0 : 0,
+      test: st && st.fresh ? normTest(st.test) : null,
     };
   }
 
@@ -89,4 +102,4 @@ class GameLink {
   }
 }
 
-module.exports = { GameLink, asArray };
+module.exports = { GameLink, asArray, normTest };

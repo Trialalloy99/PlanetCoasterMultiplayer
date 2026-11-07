@@ -4,7 +4,8 @@
 --/  Läuft im spielweiten Environment (Game.GameEnvironment), also im Hauptmenü UND im Park.
 --/  Kopplung an die Dev-UI über Dateien in ovldata/PC2MP/data/ (DLL, siehe pc2mp.persist):
 --/    ui_state.json  Spiel -> UI   { v, frame, mode = "menu"|"park", park, saves = [{id,name,world}], cmd = {id,ok,msg} }
---/    ui_cmd.json    UI -> Spiel   { id = <Zahl, steigend>, cmd = "load"|"refresh", save = <id> }
+--/    ui_cmd.json    UI -> Spiel   { id = <Zahl, steigend>, cmd = "load"|"refresh"|"join"|"testmode", save = <id> }
+--/                   testmode: { on = bool, offset = Meter }  (pc2mp.testmode)
 --/  Ein Befehl wird nur ausgeführt, wenn seine id größer ist als die beim Spielstart vorgefundene.
 -----------------------------------------------------------------------
 local global = _G
@@ -17,6 +18,7 @@ local coroutine = global.coroutine
 local string = global.string
 local Log = require("pc2mp.log")
 local Persist = require("pc2mp.persist")
+local TestMode = require("pc2mp.testmode")
 
 local Menu = {}
 Menu.nFrame = 0
@@ -147,6 +149,9 @@ function Menu.HandleCmd(t)
         api.pc2mp.tJoin = { room = t.room, lastSeq = t.lastSeq }
         ok, sMsg = Menu.Load(t.save)
         if not ok then api.pc2mp.tJoin = nil end
+    elseif t.cmd == "testmode" then
+        ok = TestMode.Set(t.on == true, tonumber(t.offset))
+        sMsg = (t.on == true) and "Testmodus an" or "Testmodus aus"
     end
     Log.Write("Menu: Befehl " .. nId .. " " .. tostring(t.cmd) .. " " .. tostring(t.save) .. " -> " .. tostring(ok) .. " " .. tostring(sMsg))
     Menu.tCmdResult = { id = nId, ok = ok, msg = sMsg }
@@ -173,6 +178,7 @@ function Menu.WriteState()
         saves = Menu.tSaves,
         refreshes = Menu.nRefreshes or 0,
         room = api.pc2mp and api.pc2mp.Sync and api.pc2mp.Sync.sRoom or nil,
+        test = TestMode.State(),
         cmd = Menu.tCmdResult,
     }
     -- frame ändert sich ständig: als Lebenszeichen nur alle nPollEvery Frames schreiben (= hier)

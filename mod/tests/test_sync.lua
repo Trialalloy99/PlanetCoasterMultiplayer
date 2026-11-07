@@ -78,6 +78,7 @@ local suStarted = {}
 package.preload["pc2mp.saveupload"] = function()
     return { OnSaveStarted = function(n) suStarted[#suStarted + 1] = n end, QuickSave = function() end, Tick = function() end }
 end
+preload("pc2mp.props")
 preload("pc2mp.sync")
 
 local Sync = require("pc2mp.sync")
@@ -183,6 +184,29 @@ inbox[#inbox + 1] = { t = "action", seq = 50, clientId = "c9", action = { op = "
 inbox[#inbox + 1] = { t = "action", seq = 51, clientId = "c1", action = { op = "terrain", origin = Sync.sInstance } }
 Sync.Tick()
 check(#weApplied == 1 and weApplied[1].op == "volume", "fremder Weg wird nachgespielt, eigenes Terrain-Echo nicht")
+
+-- ---------------------------------------------------------------- 6b. Farben (props) + Einstellungen (call)
+local nS2 = #sent
+local tLight = { op = "upsert", partID = 7777, resource = "Light", pos = { 4, 4, 4 }, rot = { 0, 0, 0 }, scale = 2,
+                 props = { colours = { { tag = "LightColour", c = { 1, 0, 0 } } } } }
+local_action(tLight)
+check(#sent == nS2 + 1 and sent[#sent].action.props.colours[1].c[1] == 1, "Farbänderung wird mit props gesendet")
+local_action({ op = "upsert", partID = 7777, resource = "Light", pos = { 4, 4, 4 }, rot = { 0, 0, 0 }, scale = 2,
+               props = { colours = { { tag = "LightColour", c = { 1, 0, 0 } } } } })
+check(#sent == nS2 + 1, "gleicher Zustand nochmal (Commit + Farb-Message) -> nicht doppelt gesendet")
+-- vom Netz: Farbe als String-Schlüssel (api.json)
+inbox[#inbox + 1] = { t = "action", seq = 60, clientId = "c9", action = { op = "upsert", netId = "n2", origin = "other",
+    resource = "Light", pos = { 4, 4, 4 }, rot = { 0, 0, 0 }, scale = 2,
+    props = { colours = { ["1"] = { tag = "LightColour", c = { ["1"] = 0, ["2"] = 0, ["3"] = 1 } } }, cookie = "Stars" } } }
+Sync.Tick()
+check(world[7777].props and world[7777].props.colours[1].c[3] == 1 and world[7777].props.cookie == "Stars",
+    "Remote-Farbe + Lichtmuster kommen beim Teil an")
+local gsApplied = {}
+package.loaded["pc2mp.gamestate"] = { ApplyRemote = function(a, from) gsApplied[#gsApplied + 1] = a end }
+inbox[#inbox + 1] = { t = "action", seq = 61, clientId = "c9", action = { op = "call", origin = "other",
+    k = "ads.SetAdvertisingActive", a = { 1, true } } }
+Sync.Tick()
+check(#gsApplied == 1 and gsApplied[1].k == "ads.SetAdvertisingActive", "Werbekampagne vom Mitspieler wird angewendet")
 
 -- ---------------------------------------------------------------- 7. Join über die Dev-UI
 api.pc2mp.tJoin = { room = "Freizeitpark", lastSeq = 120 }

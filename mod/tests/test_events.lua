@@ -23,6 +23,7 @@ package.preload["pc2mp.log"] = function()
     return { Write = function(s) end, ToStr = function(v) return tostring(v) end }
 end
 package.preload["pc2mp.capture"] = function() return {} end
+package.preload["pc2mp.props"] = function() return assert(loadfile(MAIN .. "/pc2mp.props.lua"))("pc2mp.props") end
 package.preload["pc2mp.events"] = function() return assert(loadfile(MAIN .. "/pc2mp.events.lua"))("pc2mp.events") end
 local Events = require("pc2mp.events")
 

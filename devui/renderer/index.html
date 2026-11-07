@@ -19,6 +19,7 @@
   <nav>
     <button class="tab active" data-tab="worlds">Meine Welten</button>
     <button class="tab" data-tab="servers">Servers</button>
+    <button class="tab" data-tab="test">Testmodus <span id="tab-test-dot" class="dot hidden"></span></button>
   </nav>
 
   <main>
@@ -35,6 +36,44 @@
         <button id="btn-new" class="primary" disabled>New Server</button>
       </div>
       <ul id="server-list" class="list"><li class="empty">Erst auf Connect drücken.</li></ul>
+    </section>
+
+    <section id="tab-test" class="panel">
+      <div class="test-head">
+        <div class="test-switch">
+          <label class="switch" title="Testmodus an/aus">
+            <input type="checkbox" id="test-on" aria-label="Testmodus">
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+          <div>
+            <div class="title">Testmodus</div>
+            <div class="sub" id="test-status">Spiel wird gesucht…</div>
+          </div>
+        </div>
+        <label class="field">Versatz
+          <span class="unit"><input type="number" id="test-offset" min="1" max="500" step="1" value="25"> m</span>
+        </label>
+      </div>
+      <p class="hint">Alleine testen, ohne zweiten Spieler: Alles, was du baust oder änderst, wird als Zwilling
+        um den Versatz (x-Richtung) daneben nachgebaut. Dabei läuft derselbe Code, der sonst Aktionen der Mitspieler
+        nachspielt. Im Multiplayer (Join) ist der Testmodus immer aus.</p>
+      <div class="test-grid">
+        <div class="card">
+          <h3>Was du testen kannst</h3>
+          <ul class="checklist">
+            <li><b>Licht</b> platzieren, Farbe ändern: der Zwilling ändert die Farbe (auch das Lichtmuster)</li>
+            <li><b>Szenerie</b> umfärben, umbenennen, verschieben, löschen</li>
+            <li><b>Weg</b> mit anderem Belag, Rand oder Farbe bauen: gleicher Typ beim Zwilling</li>
+            <li><b>Weg-Extras</b> (Bänke, Lampen entlang des Wegs): als Objekte gespiegelt</li>
+            <li><b>Park</b> öffnen/schließen, Name, Eintrittspreis: wird erfasst und testweise wieder angewendet</li>
+            <li><b>Werbung</b> starten/beenden, Budget: wie beim Park</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Ereignisse <span class="badge" id="test-count">0</span></h3>
+          <ol id="test-log" class="events"><li class="empty">Noch nichts gespiegelt.</li></ol>
+        </div>
+      </div>
     </section>
   </main>
 

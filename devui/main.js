@@ -21,13 +21,21 @@ function log(msg) {
   ui('log', `${new Date().toLocaleTimeString()}  ${msg}`);
 }
 
-// ------------------------------------------------------------------ Connect
-async function connect() {
+// ------------------------------------------------------------------ Spiel (ohne Server, z. B. für den Testmodus)
+function ensureGame() {
+  if (game) return game;
   gameDir = P.findGameDir(process.env.PC2_GAME_DIR);
   if (!gameDir) throw new Error('Planet Coaster 2 nicht gefunden');
   if (!fs.existsSync(P.modDir(gameDir))) throw new Error('PC2MP-Mod ist nicht installiert');
-  config = P.readConfig(gameDir) || {};
   game = new GameLink(P.dataDir(gameDir));
+  return game;
+}
+
+// ------------------------------------------------------------------ Connect
+async function connect() {
+  game = null;
+  ensureGame();
+  config = P.readConfig(gameDir) || {};
   const st = await game.status();
   log(`Spiel: ${st.running ? (st.responding ? st.mode : 'läuft, Mod antwortet nicht') : 'nicht gestartet'}`);
 
@@ -122,6 +130,19 @@ async function join(room) {
   ui('join-step', null);
 }
 
+// ------------------------------------------------------------------ Testmodus (alleine testen, pc2mp.testmode)
+async function setTestMode(on, offset) {
+  ensureGame();
+  const st = await game.status();
+  if (!st.running) throw new Error('Spiel läuft nicht');
+  if (!st.responding) throw new Error('Mod antwortet nicht (Hauptmenü oder Park öffnen)');
+  const off = Math.min(500, Math.max(1, Number(offset) || 25));
+  const r = await game.sendAndWait({ cmd: 'testmode', on: !!on, offset: off });
+  if (!r.ok) throw new Error(r.msg);
+  log(`Testmodus ${on ? 'an' : 'aus'} (Versatz ${off} m)`);
+  return (await game.status()).test;
+}
+
 // ------------------------------------------------------------------ IPC
 function handle(name, fn) {
   ipcMain.handle(name, async (_e, ...args) => {
@@ -136,7 +157,11 @@ function handle(name, fn) {
   });
 }
 handle('connect', connect);
-handle('game-status', () => (game ? game.status() : { running: false }));
+handle('game-status', () => {
+  try { ensureGame(); } catch { return { running: false }; }
+  return game.status();
+});
+handle('set-testmode', setTestMode);
 handle('worlds', worlds);
 handle('load-world', loadWorld);
 handle('create-server', createServer);

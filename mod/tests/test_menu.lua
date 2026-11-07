@@ -31,6 +31,7 @@ package.preload["pc2mp.log"] = function() return { Write = function(s) print("  
 package.preload["pc2mp.persist"] = function()
     return { WriteData = function(n, s) files[n] = s; return true end, ReadData = function(n) return files[n] end }
 end
+package.preload["pc2mp.testmode"] = function() return assert(loadfile(MAIN .. "/pc2mp.testmode.lua"))("pc2mp.testmode") end
 local Menu = assert(loadfile(MAIN .. "/pc2mp.menu.lua"))("pc2mp.menu")
 local function check(c, msg) if not c then error("FEHLER: " .. msg, 2) end print("ok  " .. msg) end
 local function tick(n, src) for _ = 1, n or 1 do Menu.Tick(src or "manager") end end
@@ -65,4 +66,12 @@ files["ui_cmd.json"] = J({ id = 8, cmd = "join", save = "B2", room = "Freizeitpa
 tick(30)
 check(loaded == "TOK_B" and api.pc2mp.tJoin.room == "Freizeitpark" and api.pc2mp.tJoin.lastSeq == 33, "join merkt Room + Seq und lädt")
 check(S("ui_state.json").refreshes >= 1, "Zähler fürs Neueinlesen im Status")
+local nChanged = 0
+api.pc2mp.fnTestModeChanged = function() nChanged = nChanged + 1 end
+files["ui_cmd.json"] = J({ id = 9, cmd = "testmode", on = true, offset = 40 })
+tick(30)
+check(S("ui_state.json").cmd.id == 9 and S("ui_state.json").cmd.ok == true, "Testmodus-Befehl bestätigt")
+check(S("ui_state.json").test.on == true and S("ui_state.json").test.offset == 40, "Testmodus im Status")
+check(nChanged == 1, "Park wird über die Umschaltung informiert")
+check(files["testmode.json"] ~= nil, "Testmodus gespeichert (bleibt nach Neustart)")
 print("\nALLE MENU-TESTS OK")

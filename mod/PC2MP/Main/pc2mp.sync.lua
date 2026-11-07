@@ -4,7 +4,8 @@
 --/
 --/  Objekt-Handle H (eins pro synchronisiertem Objekt):
 --/    { partID = lokale PartID (nil, wenn gelöscht), netId = globale ID vom Server,
---/      state = letzter bekannter Zustand {resource,pos,rot,scale} }
+--/      state = letzter bekannter Zustand {resource,pos,rot,scale,props} }
+--/  props = Farben/Lichtmuster/Name (pc2mp.props). Park-Einstellungen/Marketing: op="call" (pc2mp.gamestate).
 --/
 --/  Lokal:   Events (upsert/remove) -> Undo-Stack + Net.Send({t="action", action={op,netId|localId,...}})
 --/  Remote:  Net.Pump -> action von anderem origin -> Replay Create/Edit/Destroy
@@ -23,6 +24,7 @@ local Net = require("pc2mp.net")
 local SaveUpload = require("pc2mp.saveupload")
 local Events = require("pc2mp.events")
 local Replay = require("pc2mp.replay")
+local Props = require("pc2mp.props")
 
 local Sync = {}
 Sync.bActive = false
@@ -44,7 +46,7 @@ Sync.sInstance = api.pc2mp.sInstance
 
 local function CopyState(t)
     if t == nil then return nil end
-    return { resource = t.resource, pos = t.pos, rot = t.rot, scale = t.scale }
+    return { resource = t.resource, pos = t.pos, rot = t.rot, scale = t.scale, props = t.props }
 end
 
 ---------------------------------------------------------------------
@@ -64,7 +66,8 @@ function Sync.SendState(H)
             SendAction({ op = "remove", netId = H.netId })
         else
             local s = H.state
-            SendAction({ op = "upsert", netId = H.netId, resource = s.resource, pos = s.pos, rot = s.rot, scale = s.scale })
+            SendAction({ op = "upsert", netId = H.netId, resource = s.resource, pos = s.pos, rot = s.rot, scale = s.scale,
+                         props = s.props })
         end
     elseif not H.bCreateSent then
         if H.partID == nil then return end -- erstellt und sofort gelöscht, nie gesendet
@@ -72,7 +75,8 @@ function Sync.SendState(H)
         H.nLocalId = H.partID
         Sync.tPendingLocal[H.nLocalId] = H
         local s = H.state
-        SendAction({ op = "upsert", localId = H.nLocalId, resource = s.resource, pos = s.pos, rot = s.rot, scale = s.scale })
+        SendAction({ op = "upsert", localId = H.nLocalId, resource = s.resource, pos = s.pos, rot = s.rot, scale = s.scale,
+                     props = s.props })
     else
         H.bDirtyAfterIds = true -- Änderung, bevor die netId da ist -> nach "ids" nachsenden
     end
@@ -97,7 +101,10 @@ function Sync.OnLocalAction(tAction)
             Sync.tByPart[nPart] = H
         end
         local before = H.state
-        H.state = { resource = tAction.resource, pos = tAction.pos, rot = tAction.rot, scale = tAction.scale }
+        local tNew = { resource = tAction.resource, pos = tAction.pos, rot = tAction.rot, scale = tAction.scale,
+                       props = tAction.props }
+        if Props.StateEqual(before, tNew) then return end -- doppelte Meldung (z. B. Commit + Farb-Message)
+        H.state = tNew
         PushUndo(H, before, H.state)
         Sync.SendState(H)
     elseif tAction.op == "remove" then
@@ -172,6 +179,12 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Park-Einstellungen, Marketing (pc2mp.gamestate): Methode mit gleichen Argumenten aufrufen
+    if a.op == "call" then
+        local okG, GameState = pcall(require, "pc2mp.gamestate")
+        if okG then GameState.ApplyRemote(a, tostring(msg.clientId)) end
+        return
+    end
     local sNet = a.netId
     if sNet == nil then return end
     local H = Sync.tByNet[sNet]
@@ -181,7 +194,7 @@ local function OnRemoteAction(msg)
             Sync.tByNet[sNet] = H
         end
         local tState = { resource = a.resource or (H.state and H.state.resource), pos = Vec3(a.pos),
-                         rot = Vec3(a.rot) or { 0, 0, 0 }, scale = a.scale }
+                         rot = Vec3(a.rot) or { 0, 0, 0 }, scale = a.scale, props = Props.Normalize(a.props) }
         if tState.resource == nil or tState.pos == nil then
             Log.Write("Sync: unvollständige Aktion " .. Log.ToStr(a))
             return
@@ -301,6 +314,12 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    local okGS, GameState = pcall(require, "pc2mp.gamestate")
+    if okGS then
+        GameState.tListeners = { function(tAction)
+            if Sync.bActive then SendAction(tAction) end
+        end }
+    end
     SaveUpload.Persist = Sync.Persist
     SaveUpload.fnSend = Net.Send
     SaveUpload.fnCanUpload = function() return Sync.bActive and not Sync.bWaitConnect and Net.IsConnected() end
@@ -331,9 +350,9 @@ function Sync.OnPersistLoaded(t)
     local n = 0
     for sNet, nPart in pairs(t.map or {}) do
         local H = { netId = sNet, partID = nPart }
-        local okD, d = pcall(Events.DescribePart, nPart)
+        local okD, d = pcall(Events.DescribePart, nPart, true)
         if okD and d and d.exists then
-            H.state = { resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale }
+            H.state = { resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale, props = d.props }
         end
         Sync.tByNet[sNet] = H
         Sync.tByPart[nPart] = H

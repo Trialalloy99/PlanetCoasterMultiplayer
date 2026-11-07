@@ -73,6 +73,11 @@ S→C {"t":"error","code":"...","msg":"..."}
 - `origin` = zufällige Kennung der Spielsitzung; Clients ignorieren Aktionen mit eigenem origin (auch im Catch-up).
 - `rot` = Rotation als „packed axis angle“ (`Quaternion:ToPackedAxisAngle()` / `Quaternion.FromPackedAxisAngle`).
 - Undo/Redo werden NICHT als eigene Ops gesendet, sondern als der resultierende upsert/remove.
+- `upsert` kann `props` enthalten (Farben inkl. Lichtfarbe, Lichtmuster, Atmosphäre, Name, pc2mp.props):
+  `"props":{"colours":[{"tag":"<SemanticTag>","c":[r,g,b]}],"cookie":"<Muster>","atmos":2,"name":"..."}`
+- Park-Einstellungen, Sandbox-Einstellungen, Werbung (pc2mp.gamestate):
+  `{"op":"call","k":"ads.SetAdvertisingActive","a":[1,true],"n":2}`. Nur Schlüssel aus der Whitelist
+  `pc2mp.gamestate.tTargets` werden angewendet. Siehe `docs/findings/props-settings.md`.
 
 ## Rooms / Dev-UI (seit #21)
 Der Server hält mehrere **Rooms** (= Welten, in der UI „Servers“), je Ordner `data/<name>/` mit `actions.jsonl`, `meta.json`,

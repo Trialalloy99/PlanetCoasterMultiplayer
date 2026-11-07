@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('pc2mp', {
   createServer: (room, file) => ipcRenderer.invoke('create-server', room, file),
   join: room => ipcRenderer.invoke('join', room),
   refreshRooms: () => ipcRenderer.invoke('refresh-rooms'),
+  setTestMode: (on, offset) => ipcRenderer.invoke('set-testmode', on, offset),
   on: (channel, fn) => ipcRenderer.on(channel, (_e, v) => fn(v)),
 });

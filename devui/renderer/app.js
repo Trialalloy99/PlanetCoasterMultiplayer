@@ -161,13 +161,59 @@ api.on('log', line => {
   pre.scrollTop = pre.scrollHeight;
 });
 
-// Spielstatus regelmäßig abfragen
-setInterval(async () => {
-  if (!state.connected) return;
-  const r = await api.gameStatus();
-  if (r.ok) {
-    const before = JSON.stringify(state.game && state.game.saves);
-    renderGame(r.value);
-    if (JSON.stringify(r.value.saves) !== before) renderWorlds();
+// ------------------------------------------------------------------ Testmodus
+const test = { busy: false };
+
+function renderTest(st) {
+  const box = $('#test-on');
+  const status = $('#test-status');
+  const t = st && st.test;
+  let text = 'Aus', cls = '';
+  if (!st || !st.running) { text = 'Spiel läuft nicht'; cls = 'warn'; }
+  else if (!st.responding) { text = 'Mod antwortet nicht (Hauptmenü oder Park öffnen)'; cls = 'warn'; }
+  else if (!t) { text = 'Diese Mod-Version kennt den Testmodus nicht (neu bauen/installieren)'; cls = 'warn'; }
+  else if (t.on && t.active) { text = `Aktiv im Park · Zwilling bei x+${t.offset} m`; cls = 'ok'; }
+  else if (t.on && st.mode === 'park') { text = 'An, aber im Park nicht aktiv (läuft gerade Multiplayer?)'; cls = 'warn'; }
+  else if (t.on) { text = 'An · startet, sobald du einen Park lädst'; cls = 'ok'; }
+  status.textContent = text;
+  status.className = 'sub ' + cls;
+  box.disabled = test.busy || !st || !st.responding || !t;
+  if (t && !test.busy) {
+    box.checked = t.on;
+    if (document.activeElement !== $('#test-offset')) $('#test-offset').value = t.offset;
   }
-}, 2000);
+  $('#tab-test-dot').classList.toggle('hidden', !(t && t.on && t.active));
+  const ol = $('#test-log');
+  const lines = (t && t.log) || [];
+  $('#test-count').textContent = String((t && t.count) || 0);
+  const key = lines.join('|');
+  if (ol.dataset.key === key) return;
+  ol.dataset.key = key;
+  ol.replaceChildren();
+  if (!lines.length) { ol.append(el('li', { className: 'empty', textContent: 'Noch nichts gespiegelt.' })); return; }
+  for (const line of [...lines].reverse()) ol.append(el('li', { textContent: line }));
+}
+
+async function applyTestMode() {
+  test.busy = true;
+  renderTest(state.game);
+  const r = await api.setTestMode($('#test-on').checked, Number($('#test-offset').value));
+  test.busy = false;
+  if (!r.ok) { alert(r.error); $('#test-on').checked = !$('#test-on').checked; }
+  await pollGame();
+}
+
+$('#test-on').addEventListener('change', applyTestMode);
+$('#test-offset').addEventListener('change', () => { if ($('#test-on').checked) applyTestMode(); });
+
+// Spielstatus regelmäßig abfragen (auch ohne Server-Verbindung, für den Testmodus)
+async function pollGame() {
+  const r = await api.gameStatus();
+  if (!r.ok) return;
+  const before = JSON.stringify(state.game && state.game.saves);
+  renderGame(r.value);
+  renderTest(r.value);
+  if (state.connected && JSON.stringify(r.value.saves) !== before) renderWorlds();
+}
+setInterval(pollGame, 2000);
+pollGame();

@@ -103,6 +103,12 @@ local function Vec(t, nOffsetX)
     return Vector3:new(t[1] + (nOffsetX or 0), t[2], t[3])
 end
 
+-- Farb-Vektoren (vOutlineColour, vEdgeColour, ...) sind keine Positionen -> nie verschieben
+local function IsColourKey(k)
+    return type(k) == "string" and (k:find("[Cc]olou?r") ~= nil)
+end
+WorldEdit.IsColourKey = IsColourKey
+
 local function Deser(v, nOffsetX)
     if type(v) ~= "table" then return v end
     if v.v3 then return Vec(v.v3, nOffsetX) end
@@ -112,7 +118,7 @@ local function Deser(v, nOffsetX)
         return TransformQ.FromOrPos(Quaternion.Identity, Vec(v.tq.v3, nOffsetX))
     end
     local o = {}
-    for k, x in pairs(v) do o[k] = Deser(x, nOffsetX) end
+    for k, x in pairs(v) do o[k] = Deser(x, (not IsColourKey(k)) and nOffsetX or nil) end
     return o
 end
 WorldEdit.Deser = Deser
@@ -472,15 +478,15 @@ local function ApplySpline(sp, nOffsetX)
     clh:BeginVolumeModificationsBlock()
     local mo = vol:CreateMoveObjectForVolumeSpline(clh, tStart, sp.bCurve, sp.bClassic, sp.bRightAngled, false)
     if sp.pathData then
-        local a = Deser(sp.pathData, nOffsetX)
+        local a = Deser(sp.pathData) -- Typ/Maße/Farben, keine Positionen
         vol:SetSplinePathData(mo, table.unpack(a, 1, MaxIndex(a)))
     end
     if sp.borderData then
-        local a = Deser(sp.borderData, nOffsetX)
+        local a = Deser(sp.borderData) -- Typ/Maße/Farben, keine Positionen
         pcall(vol.SetSplineBorderData, vol, mo, table.unpack(a, 1, MaxIndex(a)))
     end
     if sp.buildOpts then
-        local a = Deser(sp.buildOpts, nOffsetX)
+        local a = Deser(sp.buildOpts) -- Typ/Maße/Farben, keine Positionen
         pcall(vol.SetSplineBuildingOptions, vol, mo, table.unpack(a, 1, MaxIndex(a)))
     end
     clh:EndVolumeModificationsBlock()
@@ -535,6 +541,10 @@ function WorldEdit.OnMirrorAction(tAction)
     if not WorldEdit.bMirror then return end
     WorldEdit.Apply(tAction, WorldEdit.nMirrorOffsetX, function(bOk, r1)
         Log.Write("WorldEdit: Spiegel " .. tostring(tAction.op) .. " -> " .. tostring(bOk) .. " " .. tostring(r1))
+        if WorldEdit.fnOnEvent then
+            pcall(WorldEdit.fnOnEvent, (tAction.op == "volume" and "Weg" or "Terrain") .. " gespiegelt -> "
+                .. tostring(bOk and r1 ~= false))
+        end
     end)
 end
 

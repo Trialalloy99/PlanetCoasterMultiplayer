@@ -4,7 +4,9 @@
 --/  PlacementPartCommittedMessage { nPlacementPartID } kommt bei Erstellen, Ändern
 --/  (Verschieben/Drehen/Skalieren), Löschen und Undo/Redo. Wir beschreiben das Teil
 --/  (Ressource, Position, Rotation, Skalierung) und erzeugen daraus eine Aktion:
---/     { op="upsert", partID, resource, pos={x,y,z}, rot={ax,ay,az}, scale }
+--/     { op="upsert", partID, resource, pos={x,y,z}, rot={ax,ay,az}, scale, props }
+--/  props = Farben/Lichtmuster/Name (pc2mp.props). Farbänderungen kommen zusätzlich über
+--/  MaterialChangedGameMessage {nEntityID}, Umbenennen über UserRenameMessage {id, name}.
 --/     { op="remove", partID }
 --/  Listener (Spiegel-Test, später Netzwerk) bekommen diese Aktionen.
 -----------------------------------------------------------------------
@@ -19,6 +21,7 @@ local string = global.string
 local table = global.table
 local Log = require("pc2mp.log")
 local Capture = require("pc2mp.capture")
+local Props = require("pc2mp.props")
 
 local Events = {}
 Events.tReceivers = {}
@@ -41,7 +44,8 @@ local function Vec(v)
     return nil
 end
 
-function Events.DescribePart(nPartID)
+-- bProps: auch Farben/Lichtmuster/Name lesen (teurer; erst nach dem Commit-Gate nötig)
+function Events.DescribePart(nPartID, bProps)
     local d = { partID = nPartID }
     local tw = Events.tWorldAPIs
     local placement, scenery = tw and tw.placement, tw and tw.scenery
@@ -58,6 +62,10 @@ function Events.DescribePart(nPartID)
             local q = TryCall(tr, "GetOr")
             if q ~= nil then d.rot = Vec(TryCall(q, "ToPackedAxisAngle")) end
         end
+    end
+    if bProps then
+        local okP, p = pcall(Props.Describe, tw, nPartID, nEntity)
+        if okP then d.props = p end
     end
     return d
 end
@@ -196,11 +204,56 @@ function Events.HandlePart(nPartID, nTry, bGateOk)
         end
     else
         Events.tKnownOriginals[nPartID] = true
-        Emit({ op = "upsert", partID = nPartID, resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale })
+        local okP, p = pcall(Props.Describe, Events.tWorldAPIs, nPartID,
+            TryCall(Events.tWorldAPIs and Events.tWorldAPIs.placement, "PlacementIDToEntityID", nPartID))
+        d.props = okP and p or nil
+        Emit({ op = "upsert", partID = nPartID, resource = d.resource, pos = d.pos, rot = d.rot, scale = d.scale,
+               props = d.props })
+    end
+end
+
+---------------------------------------------------------------------
+-- Eigenschaften ohne PlacementPartCommittedMessage (Farbe, Name): Teil als "dirty" merken.
+-- Farben ändern sich auch in der Vorschau des Farbwählers -> erst nach einem Spieler-Commit
+-- (frühestens nDirtyCommitSlack Frames vor der Änderung) melden; Umbenennen sofort.
+---------------------------------------------------------------------
+Events.tDirty = {}         -- PartID -> { nFrame, bForce }
+Events.nDirtyCommitSlack = 30
+Events.nDirtyMaxAge = 1800
+
+function Events.MarkDirty(nPartID, bForce)
+    if nPartID == nil or Events.IsIgnored(nPartID) then return end
+    local e = Events.tDirty[nPartID]
+    if e == nil then
+        Events.tDirty[nPartID] = { nFrame = Events.fnNow(), bForce = bForce }
+    else
+        e.nFrame = Events.fnNow()
+        e.bForce = e.bForce or bForce
+    end
+end
+
+local function ProcessDirty()
+    local nNow = Events.fnNow()
+    for nPartID, e in pairs(Events.tDirty) do
+        local bCommitted = Events.nLastUserCommitFrame >= e.nFrame - Events.nDirtyCommitSlack
+        local bBusy = false
+        if api.undo and type(api.undo.IsBusy) == "function" then
+            local okB, b = pcall(api.undo.IsBusy)
+            bBusy = okB and b
+        end
+        if (e.bForce or bCommitted) and not bBusy and nNow - e.nFrame >= 3 then
+            Events.tDirty[nPartID] = nil
+            -- nur Teile, die wir schon kennen oder die gerade vom Spieler kommen
+            local ok, err = pcall(Events.HandlePart, nPartID, 1, true)
+            if not ok then Log.Write("Events-Fehler (dirty): " .. tostring(err)) end
+        elseif nNow - e.nFrame > Events.nDirtyMaxAge then
+            Events.tDirty[nPartID] = nil
+        end
     end
 end
 
 function Events.Tick()
+    if global.next(Events.tDirty) ~= nil then ProcessDirty() end
     if #Events.tDeferred == 0 then return end
     local tNow = Events.tDeferred
     Events.tDeferred = {}
@@ -223,6 +276,29 @@ local function OnPartCommitted(tMessages)
     end
 end
 
+local function PartFromEntity(nEntityID)
+    local placement = Events.tWorldAPIs and Events.tWorldAPIs.placement
+    return TryCall(placement, "EntityIDToPlacementID", nEntityID)
+end
+
+local function OnMaterialChanged(tMessages)
+    for _, tMsg in pairs(tMessages or {}) do
+        if type(tMsg) == "table" and tMsg.nEntityID ~= nil then
+            local nPart = PartFromEntity(tMsg.nEntityID)
+            if nPart ~= nil then Events.MarkDirty(nPart, false) end
+        end
+    end
+end
+
+local function OnUserRename(tMessages)
+    for _, tMsg in pairs(tMessages or {}) do
+        if type(tMsg) == "table" and type(tMsg.id) == "number" then
+            local placement = Events.tWorldAPIs and Events.tWorldAPIs.placement
+            if TryCall(placement, "PlacementPartExists", tMsg.id) then Events.MarkDirty(tMsg.id, true) end
+        end
+    end
+end
+
 local function OnUndoRedo(_tMessages)
     Log.Write("EVENT UndoRedoCompleted")
 end
@@ -237,6 +313,8 @@ function Events.Register(tWorldAPIs)
     local tHandlers = {
         PlacementPartCommittedMessage = OnPartCommitted,
         UndoRedoCompletedMessage = OnUndoRedo,
+        MaterialChangedGameMessage = OnMaterialChanged,
+        UserRenameMessage = OnUserRename,
     }
     for sName, fn in pairs(tHandlers) do
         local nType = msg["MsgType_" .. sName]

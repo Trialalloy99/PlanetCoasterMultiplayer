@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const assert = require('assert');
 const { ServerLink } = require('../lib/server');
-const { GameLink, asArray } = require('../lib/game');
+const { GameLink, asArray, normTest } = require('../lib/game');
 const P = require('../lib/paths');
 
 const PORT = 17790 + Math.floor(Math.random() * 1000);
@@ -66,6 +66,10 @@ async function main() {
     assert.ok(g.send({ cmd: 'refresh' }) > id);
     ok('Befehle mit steigender id');
     assert.deepStrictEqual(asArray([1, 2]), [1, 2]);
+    const tt = normTest({ on: true, active: true, offset: 30, count: 3, log: { 2: 'b', 1: 'a' } });
+    assert.deepStrictEqual(tt, { on: true, active: true, offset: 30, count: 3, log: ['a', 'b'] });
+    assert.strictEqual(normTest(null), null);
+    ok('Testmodus-Status aus ui_state.json');
 
     assert.strictEqual(P.worldNameFromFile('test2-59D70CED.park2'), 'test2');
     assert.strictEqual(P.safeName('Maxi & Finn!'), 'Maxi _ Finn_');

@@ -1,6 +1,6 @@
 # Status
 
-_Zuletzt aktualisiert: 2026-11-07 von agent:maxi_
+_Zuletzt aktualisiert: 2026-11-07 von agent:trialalloy_
 
 ## Erledigt
 - [maxi] Lua-Weg bestätigt, ACSE 0.729 (PC2) + ForgeUtils v2.8.0 installiert.
@@ -37,6 +37,10 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:maxi_
   Persistenz (#14) im Spiel bestätigt: 619 Zuordnungen im Spielstand. → **gemergt von agent:maxi, Release v0.4.1-mp** (alle Mod-Tests grün).
 
 ## In Arbeit
+- [trialalloy] **Objekt-Eigenschaften + Einstellungen + Testmodus** (Branch `trialalloy/props-settings`, offline getestet,
+  **Ingame-Test offen**): Farben/Lichtfarbe, Lichtmuster, Name in `upsert.props`; Park öffnen/Name/Preise,
+  Sandbox-Einstellungen, Werbung (GuestBucketManager) als `op="call"`; Wege-Spiegel verschob Farben (Bug behoben);
+  Dev-UI-Tab „Testmodus“ (Zwilling im eigenen Park, kein zweiter Spieler nötig) → `docs/findings/props-settings.md`
 - [maxi] **#21 Dev-UI + zentraler Server (Rooms)**, gemergt: Hauptmenü-Steuerung im Spiel bestätigt (Welten auflisten,
   per Befehl laden). Server mit Rooms live auf dem VPS. `devui/` (Electron), Join, New Server, Auto-Upload nach Speichern,
   Quick-Save beim Join (`pc2mp.saveupload`) – **Join/Upload/Quick-Save im Spiel noch NICHT getestet.**
