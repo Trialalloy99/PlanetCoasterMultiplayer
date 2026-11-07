@@ -305,6 +305,23 @@ local bApplied = false
 for _, l in ipairs(log) do if l:find("angewendet park.SetParkEntranceAdultTicketPrice von Testmodus", 1, true) then bApplied = true end end
 check(bApplied, "Loopback: über JSON wieder angewendet")
 
+-- Park-API, deren Methoden über eine __index-FUNKTION kommen (wie im Spiel beobachtet)
+local closed = nil
+local parkFn = setmetatable({}, { __index = function(_, k)
+    if k == "SetParkOpenForGuests" then return function(_, b) closed = not b end end
+end })
+local GS2 = GameState
+GS2.tWorldAPIs = { park = parkFn }
+local tgtOpen = GS2.tByKey["park.SetParkOpenForGuests"]
+GS2.Install({ park = parkFn }, env)
+for _ = 1, GS2.nWarmupFrames do GS2.Tick() end
+local sent2 = {}
+GS2.tListeners = { function(a) sent2[#sent2 + 1] = a end }
+parkFn:SetParkOpenForGuests(false)
+check(closed == true and #sent2 == 1 and sent2[1].k == tgtOpen.k, "Park-API mit __index-Funktion wird abgefangen")
+GS2.ApplyRemote({ op = "call", k = "park.SetParkOpenForGuests", a = { true }, n = 1 }, "c2")
+check(closed == false and #sent2 == 1, "Remote-Anwendung darauf ohne Echo")
+
 -- ---------------------------------------------------------------- 5. Testmodus (Dev-UI-Befehl)
 local TestMode = require("pc2mp.testmode")
 local WorldEdit = require("pc2mp.worldedit")

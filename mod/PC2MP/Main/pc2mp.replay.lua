@@ -144,7 +144,13 @@ function Replay.DoCreate(tAction, fnBeforeCommit)
             bPropsDone = Props.Matches(tAction.props, Props.Describe(tw, nNewID, okE and nEnt or nil))
             if not bPropsDone then Log.Write("Replay: Farben nach dem Erstellen fehlen -> Nachbearbeitung") end
         end
-        if not bPropsDone then Replay.DoEdit(nNewID, { props = tAction.props }) end
+        if not bPropsDone then
+            -- oft stimmen die Farben schon (Standardfarben) -> nur bei Abweichung nachbearbeiten
+            local tw = Replay.tWorldAPIs
+            local okE, nEnt = pcall(tw.placement.PlacementIDToEntityID, tw.placement, nNewID)
+            local okM, bMatch = pcall(Props.Matches, tAction.props, Props.Describe(tw, nNewID, okE and nEnt or nil))
+            if not (okM and bMatch) then Replay.DoEdit(nNewID, { props = tAction.props }) end
+        end
         Props.ApplyDirect(Replay.tWorldAPIs, nNewID, tAction.props)
     end
     return bOk and nNewID or nil, bOk

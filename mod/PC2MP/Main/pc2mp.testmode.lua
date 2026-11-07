@@ -84,7 +84,10 @@ end
 -- Für ui_state.json
 function TestMode.State()
     local t = TestMode.Load()
-    return { on = t.on, offset = t.offset, active = t.bActive == true, count = t.count or 0, log = t.log }
+    -- mp: im Park läuft Multiplayer (Testmodus greift erst nach dem Neuladen des Parks)
+    local Sync = api.pc2mp and api.pc2mp.Sync
+    return { on = t.on, offset = t.offset, active = t.bActive == true, count = t.count or 0, log = t.log,
+             mp = Sync ~= nil and Sync.bActive == true or nil, room = Sync and Sync.sRoom or nil }
 end
 
 ---------------------------------------------------------------------

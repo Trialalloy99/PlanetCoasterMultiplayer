@@ -216,4 +216,12 @@ Sync.OnPersistLoaded({ lastSeq = 7, map = {} })
 for _ = 1, 30 do Sync.Tick() end
 check(Net.hello.park == "Freizeitpark" and Net.hello.lastSeq == 120, "Join: hello mit Room und Spielstand-Seq vom Server")
 
+-- ---------------------------------------------------------------- 8. Testmodus vs. Config-Fallback
+Sync.Stop()
+Sync.fnTestModeOn = function() return true end
+check(Sync.Start() == false, "Testmodus an: kein Multiplayer über 'park' aus der Config")
+api.pc2mp.tJoin = { room = "Freizeitpark", lastSeq = 1 }
+check(Sync.Start() == true and Sync.sRoom == "Freizeitpark", "Testmodus an, aber über die UI gejoint: Multiplayer läuft")
+Sync.fnTestModeOn = nil
+
 print("\nALLE SYNC-TESTS OK")

@@ -67,7 +67,7 @@ async function main() {
     ok('Befehle mit steigender id');
     assert.deepStrictEqual(asArray([1, 2]), [1, 2]);
     const tt = normTest({ on: true, active: true, offset: 30, count: 3, log: { 2: 'b', 1: 'a' } });
-    assert.deepStrictEqual(tt, { on: true, active: true, offset: 30, count: 3, log: ['a', 'b'] });
+    assert.deepStrictEqual(tt, { on: true, active: true, offset: 30, count: 3, log: ['a', 'b'], mp: false, room: null });
     assert.strictEqual(normTest(null), null);
     ok('Testmodus-Status aus ui_state.json');
 

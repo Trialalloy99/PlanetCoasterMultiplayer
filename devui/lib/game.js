@@ -25,6 +25,8 @@ function normTest(t) {
     offset: Number(t.offset) || 25,
     count: Number(t.count) || 0,
     log: asArray(t.log).map(String),
+    mp: !!t.mp,
+    room: t.room || null,
   };
 }
 

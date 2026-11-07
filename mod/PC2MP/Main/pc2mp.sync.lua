@@ -292,6 +292,14 @@ function Sync.Start()
     if tJoin ~= nil then api.pc2mp.tJoin = nil end
     Sync.sRoom = (tJoin and tJoin.room) or tCfg.park
     Sync.nJoinLastSeq = tJoin and global.math.tointeger(global.tonumber(tJoin.lastSeq) or 0) or nil
+    -- Testmodus an (Dev-UI) und nicht ausdrücklich gejoint: kein Multiplayer über den Config-Fallback,
+    -- sonst landen beim Laden eines beliebigen Parks die Aktionen des Server-Rooms darin
+    if tJoin == nil and Sync.fnTestModeOn and Sync.fnTestModeOn() then
+        Log.Write("Sync: Testmodus an -> kein Multiplayer über 'park' aus PC2MP_config.json (Room "
+            .. tostring(Sync.sRoom) .. "). Für Multiplayer: Testmodus aus und über die Dev-UI joinen.")
+        Sync.sRoom = nil
+        return false
+    end
     if Sync.sRoom == nil or Sync.sRoom == "" then
         Log.Write("Sync: Welt nicht über die Dev-UI gejoint -> offline")
         return false

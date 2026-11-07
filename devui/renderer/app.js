@@ -173,7 +173,8 @@ function renderTest(st) {
   else if (!st.responding) { text = 'Mod antwortet nicht (Hauptmenü oder Park öffnen)'; cls = 'warn'; }
   else if (!t) { text = 'Diese Mod-Version kennt den Testmodus nicht (neu bauen/installieren)'; cls = 'warn'; }
   else if (t.on && t.active) { text = `Aktiv im Park · Zwilling bei x+${t.offset} m`; cls = 'ok'; }
-  else if (t.on && st.mode === 'park') { text = 'An, aber im Park nicht aktiv (läuft gerade Multiplayer?)'; cls = 'warn'; }
+  else if (t.on && t.mp) { text = `An, aber in diesem Park läuft Multiplayer (Room „${t.room || '?'}“). Park neu laden, dann startet der Testmodus.`; cls = 'warn'; }
+  else if (t.on && st.mode === 'park') { text = 'An · Park neu laden, dann startet der Testmodus'; cls = 'warn'; }
   else if (t.on) { text = 'An · startet, sobald du einen Park lädst'; cls = 'ok'; }
   status.textContent = text;
   status.className = 'sub ' + cls;

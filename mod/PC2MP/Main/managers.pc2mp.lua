@@ -74,6 +74,7 @@ function PC2MPManager.Activate(self)
     local okGS, errGS = pcall(GameState.Install, tWorldAPIs, tEnv)
     if not okGS then Log.Write("GameState.Install Fehler: " .. tostring(errGS)) end
 
+    Sync.fnTestModeOn = TestMode.IsOn
     local okS, bSync = pcall(Sync.Start)
     if not okS then Log.Write("Sync.Start Fehler: " .. tostring(bSync)) end
     self.bMultiplayer = okS and bSync

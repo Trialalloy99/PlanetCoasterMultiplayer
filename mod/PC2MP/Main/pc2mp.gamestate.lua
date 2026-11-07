@@ -193,12 +193,23 @@ end
 
 local function WrapApi(obj, tgt)
     local tm = ApiMethodTable(obj, tgt.m)
-    if type(tm) ~= "table" then return false end
+    -- Methoden über __index-Funktion o. Ä.: bei einer Tabelle direkt auf dem Objekt überschreiben
+    -- (Lookup obj[m] trifft dann zuerst den Wrapper). Log 2026-11-07: tWorldAPIs.park war über den Metatabellen-Weg nicht abfangbar.
+    if (type(tm) ~= "table" or type(tm[tgt.m]) ~= "function") and type(obj) == "table" then tm = obj end
+    if type(tm) ~= "table" then
+        local mt = getmetatable(obj)
+        Log.Write("GameState: " .. tgt.k .. " nicht abfangbar (Typ " .. type(obj) .. ", Metatabelle "
+            .. type(mt) .. ", __index " .. (type(mt) == "table" and type(mt.__index) or "-") .. ")")
+        return false
+    end
     local sMark = "__pc2mp_gs_" .. tgt.m
     if rawget(tm, sMark) then return true end
     local fnOrig = tm[tgt.m]
-    if type(fnOrig) ~= "function" then return false end
-    tm[tgt.m] = MakeWrapper(tgt.k, fnOrig)
+    if type(fnOrig) ~= "function" then
+        Log.Write("GameState: " .. tgt.k .. ": Methode fehlt (" .. type(fnOrig) .. ")")
+        return false
+    end
+    rawset(tm, tgt.m, MakeWrapper(tgt.k, fnOrig))
     rawset(tm, sMark, fnOrig)
     return true
 end
