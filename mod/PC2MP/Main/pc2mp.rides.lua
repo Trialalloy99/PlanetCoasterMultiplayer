@@ -26,6 +26,12 @@
 --/    Clients gleich), Empfänger ordnet unbekannte rids über die alte Position (prev) bzw. Zielposition einer
 --/    vorhandenen Bahn zu und ERSETZT sie statt sie zu verdoppeln. Workshop-Blaupausen: die ganze Bahn reist als
 --/    Datei mit, der Mitspieler braucht das Workshop-Item nicht.
+--/  DATENVERLUST-FIX agent:maxi (2026-11-07 17:28, Live-Join "Hallo"): beim Nachholen wurden 13 Bahnen aus dem
+--/    Spielstand "ersetzt": erst abgerissen, dann scheiterte das Laden der Blaupause -> alle Bahnen weg. Jetzt:
+--/    Blaupause wird KOMPLETT geladen (bereit + nicht leer), erst dann wird die alte Bahn abgerissen; pro rid wird
+--/    nur die NEUESTE Version eingesetzt (ältere Jobs werden übersprungen); Export schreibt Metadaten wie die
+--/    Blaupausen-UI (ohne Metadaten zeigt der Bau-Katalog "Blaupause beschädigt"); liegengebliebene PC2MP_*.blpr2
+--/    werden beim Start gelöscht.
 --/  Aktionen: { op="ridebp", rid, part, parts, data } (Blaupause in Teilen, base64)
 --/            { op="ride", rid, pos, rot, prev, flat, parts }  (nach dem letzten Teil: ersetzen; prev = Lage beim letzten Export)
 --/            { op="ridedel", rid }
@@ -215,6 +221,11 @@ function Rides.Install(tWorldAPIs)
     end
     Log.Write("Rides installiert: " .. n .. " Nachrichten, " .. #Rides.AllRides() .. " Fahrgeschäfte im Park, Datenordner "
         .. tostring(DataDir()))
+    Rides.tGen = {}
+    local okR, Replay = pcall(require, "pc2mp.replay")
+    if okR and Replay.Enqueue then
+        pcall(Replay.Enqueue, "ride cleanup", function() return Rides.CleanupLeftovers() end)
+    end
 end
 
 -- rid für Bahnen, die schon im Spielstand sind: aus der Position (auf allen Clients gleich)
@@ -320,6 +331,53 @@ function Rides.DeleteSave(token)
     pcall(api.save.RequestDelete, token, {})
 end
 
+-- Metadaten wie GamefaceBlueprintSaveUIMode._SaveBlueprint (ohne: Katalog zeigt "beschädigt")
+function Rides.BuildMetadata(sName, bFlat)
+    local okB, Builder = pcall(require, "Helpers.SaveMetadataBuilder")
+    if not okB or type(Builder) ~= "table" or Builder.new == nil then return nil end
+    local ok, tMeta = pcall(function()
+        local b = Builder:new()
+        b:SetType(Builder.Type_Blueprint)
+        b:SetName(sName)
+        b:SetDescription("PC2MP sync")
+        b:SetBuildingCount(0)
+        b:SetSceneryCount(0)
+        b:SetFlatRideCount(bFlat and 1 or 0)
+        b:SetCoasterCount(bFlat and 0 or 1)
+        b:AddTag("Blueprint")
+        pcall(b.SetIsModded, b, api.content.IsGameModded())
+        return b:GetResult()
+    end)
+    if not ok then Log.Write("Rides: Metadaten nicht erzeugt: " .. tostring(tMeta)); return nil end
+    return tMeta
+end
+
+-- Beim Start: liegengebliebene Sync-Blaupausen löschen (tauchen sonst im Bau-Katalog auf)
+function Rides.CleanupLeftovers()
+    local owner = api.player.GetGameOwner()
+    local tInfo = { sort = api.save.GetExistingSaves_SortMostRecentFirst }
+    local ok, bDone, tSaves = api.save.GetExistingSaves(owner, "blpr2", tInfo)
+    local n = 0
+    while ok and not bDone and n < 600 do
+        Yield(); n = n + 1
+        ok, bDone, tSaves = api.save.GetExistingSaves(owner, "blpr2", tInfo)
+    end
+    if not ok or type(tSaves) ~= "table" then return true end
+    local nDel = 0
+    local tPending = {}
+    for rid in pairs(Rides.tGen or {}) do tPending[SaveName(rid)] = true end
+    for _, tok in ipairs(tSaves) do
+        local okN, s = pcall(api.save.GetSaveCustomName, tok)
+        if okN and type(s) == "string" and s:sub(1, 6) == "PC2MP_" and not tPending[s] then
+            pcall(api.save.RequestDelete, tok, {})
+            nDel = nDel + 1
+            if nDel % 20 == 0 then Yield() end
+        end
+    end
+    if nDel > 0 then Note(nDel .. " alte Sync-Blaupausen gelöscht") end
+    return true
+end
+
 -- als Replay-Job: Blaupause speichern, dann Aktion verteilen
 function Rides.ExportAndSend(nRide)
     if not Rides.tKnown[nRide] then return end
@@ -339,8 +397,10 @@ function Rides.ExportAndSend(nRide)
         if sel == nil then Note("CreateSaveSelection fehlgeschlagen"); return false end
         if not pcall(sel.AddEntityID, sel, nRide) then Note("AddEntityID fehlgeschlagen"); return false end
         local owner = api.player.GetGameOwner()
+        local tMeta = Rides.BuildMetadata(sName, bFlat)
         local tRes, sErr = WaitDone(function(fnDone)
-            api.save.RequestSave(owner, { type = "blpr2", customname = sName, selection = sel, oncomplete = fnDone })
+            api.save.RequestSave(owner, { type = "blpr2", customname = sName, selection = sel, metadata = tMeta,
+                                          oncomplete = fnDone })
         end)
         if tRes == nil then Note("Blaupause speichern fehlgeschlagen: " .. tostring(sErr)); return false end
         return true, tRes.save
@@ -465,7 +525,20 @@ end
 function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     local tw = TW()
     if token == nil then Note("kein Blaupausen-Token für " .. tostring(rid)); return false end
-    -- 1. alte Kopie abreißen
+    -- 1. Blaupause laden. WIE DAS SPIEL (BlueprintPlacementMode.CreateNew): Hierarchie zuerst, dann laden.
+    --    Die alte Bahn bleibt stehen, bis die Blaupause sicher geladen ist (sonst Datenverlust, Live-Join 17:28).
+    local n = 0
+    while UndoBusy() and n < 900 do Yield(); n = n + 1 end
+    local clhLoad = tw.editors:CreateUndoOperationsHierarchy()
+    local tLoad, sErr = WaitDone(function(fnDone) api.save.RequestLoad(token, { oncomplete = fnDone }) end)
+    if tLoad == nil then
+        Note("Blaupause laden fehlgeschlagen: " .. tostring(sErr) .. " -> vorhandene Bahn bleibt")
+        return false
+    end
+    n = 0
+    while not Call(clhLoad, "IsLoadedBlueprintReadyForEditing") and n < 900 do Yield(); n = n + 1 end
+    if n >= 900 then Note("Blaupause wurde nicht bereit -> vorhandene Bahn bleibt"); return false end
+    -- 2. jetzt erst die alte Kopie abreißen
     local nOld = Rides.tCopyOf[rid]
     if nOld ~= nil and (Rides.tKnown[nOld] or RideTransform(nOld) ~= nil) then
         if not Rides.RemoveRide(nOld) then Note("alte Kopie von " .. rid .. " ließ sich nicht abreißen") end
@@ -473,21 +546,9 @@ function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
         Yield(5)
     end
     Rides.tCopyOf[rid] = nil
-    -- 2. Blaupause laden und einsetzen
+    -- 3. einsetzen (die geladene Blaupause hängt an der Lade-Hierarchie)
     local tBefore = Rides.AllRides()
-    -- WIE DAS SPIEL (BlueprintPlacementMode.CreateNew): Hierarchie zuerst, dann laden. Umgekehrt landet die
-    -- Blaupause im Welt-Lade-Pfad -> "StandaloneScenerySerialisation.lua:227 ... nil" (Live-Test 2026-11-07)
-    local n = 0
-    while UndoBusy() and n < 900 do Yield(); n = n + 1 end
-    local clh = tw.editors:CreateUndoOperationsHierarchy()
-    local tLoad, sErr = WaitDone(function(fnDone) api.save.RequestLoad(token, { oncomplete = fnDone }) end)
-    if tLoad == nil then
-        Note("Blaupause laden fehlgeschlagen: " .. tostring(sErr))
-        return false
-    end
-    n = 0
-    while not Call(clh, "IsLoadedBlueprintReadyForEditing") and n < 900 do Yield(); n = n + 1 end
-    if n >= 900 then Note("Blaupause wurde nicht bereit"); return false end
+    local clh = clhLoad
     local mo = clh:CreateCompositeObject({})
     clh:AddBlueprintToCompositeObject(mo)
     if Call(mo, "IsEmpty") then Note("Blaupause ist leer"); return false end
@@ -634,7 +695,15 @@ function Rides.ApplyRemote(a, sFrom)
         end
         local Replay = require("pc2mp.replay")
         local sName = SaveName(rid)
+        Rides.tGen = Rides.tGen or {}
+        local nGen = (Rides.tGen[rid] or 0) + 1
+        Rides.tGen[rid] = nGen
         Replay.Enqueue("ride place " .. rid, function()
+            if Rides.tGen[rid] ~= nGen then
+                -- neuere Version derselben Bahn steht schon in der Warteschlange -> diese überspringen
+                -- (Datei nicht löschen: gleicher Name wie die neueste; Reste räumt CleanupLeftovers beim Start weg)
+                return true
+            end
             local token = FindBlueprintToken(sName)
             if token == nil then
                 Note("Spiel erkennt die empfangene Blaupause nicht (" .. sFile .. ")")

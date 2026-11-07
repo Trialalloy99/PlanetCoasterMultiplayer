@@ -44,7 +44,7 @@ package.preload["pc2mp.persist"] = function()
         ReadSaveChunk = function(n, i) return savesDir[n] end,
         WriteSaveChunk = function(n, i, d) incoming[n] = (incoming[n] or "") .. d; return true end,
         FinishSave = function(n, sha) if sha ~= "sha:" .. incoming[n] then return false, "sha" end
-            savesDir[n] = incoming[n]; incoming[n] = nil; return true end,
+            savesDir[n] = incoming[n]; incoming[n] = nil; saveTime = (saveTime or 0) + 1; saveAge[n] = saveTime; return true end,
         AbortSave = function(n) incoming[n] = nil end,
     }
 end
@@ -110,7 +110,9 @@ api = {
             t.oncomplete({})
         end,
         RequestDelete = function(tok) savesDir[tok.file] = nil; deleted = deleted + 1 end,
-        GetExistingSaves = function() local o = {}; for n in pairs(savesDir) do o[#o + 1] = { file = n } end; return true, true, o end,
+        -- wie das Spiel (SortMostRecentFirst): neueste zuerst
+        GetExistingSaves = function() local o = {}; for n in pairs(savesDir) do o[#o + 1] = { file = n } end
+            table.sort(o, function(a, b) return (saveAge[a.file] or 0) > (saveAge[b.file] or 0) end); return true, true, o end,
         GetSaveCustomName = function(tok) return CustomOf(tok.file) end,
         GetSaveIdentifier = function(tok) return tok.file end,
     },
@@ -121,6 +123,7 @@ api = {
     },
 }
 loadedBp = nil
+saveAge = {}
 deleted = 0
 ORDER = {}
 function CustomOf(fname) return fname:match("^(.*)%-%x+%.blpr2$") end
@@ -267,5 +270,30 @@ local nRep = Rides.tCopyOf["finn:7"]
 check(rides[50] == nil and nRep and rides[nRep] and rides[nRep].content == "Achterbahn neu (Looping)",
     "vorhandene Bahn (über alte Position gefunden) wird ersetzt")
 check(nAfter == nBefore, "keine doppelte Bahn")
+
+-- ---------------------------------------------------------------- 4. Live-Join 17:28: Laden scheitert -> vorhandene Bahn bleibt
+rides[60] = { flat = false, pos = { 200, 0, 200 }, rot = { 0, 0, 0 }, content = "Bahn aus dem Spielstand" }
+savesDir = {}
+local realLoad = api.save.RequestLoad
+api.save.RequestLoad = function(tok, t) ORDER[#ORDER + 1] = "load"; t.oncomplete({ exception = "tThisSaveInfo nil" }) end
+local sBp2 = "BP:false:kaputt"
+Rides.ApplyRemote({ op = "ridebp", rid = "old:60", part = 1, parts = 1, data = sBp2 }, "c2")
+Rides.ApplyRemote({ op = "ride", rid = "old:60", pos = { 200, 0, 200 }, prev = { 200, 0, 200 }, rot = { 0, 0, 0 }, parts = 1, sha = "sha:" .. sBp2 }, "c2")
+RunJobs()
+check(rides[60] ~= nil and rides[60].content == "Bahn aus dem Spielstand", "Blaupause lädt nicht -> vorhandene Bahn wird NICHT abgerissen")
+api.save.RequestLoad = realLoad
+
+-- mehrere Versionen derselben Bahn beim Nachholen: nur die neueste wird eingesetzt
+savesDir = {}
+local nLoadsBefore = 0; for _, o in ipairs(ORDER) do if o == "load" then nLoadsBefore = nLoadsBefore + 1 end end
+for i = 1, 3 do
+    local sB = "BP:false:Version " .. i
+    Rides.ApplyRemote({ op = "ridebp", rid = "old:60", part = 1, parts = 1, data = sB }, "c2")
+    Rides.ApplyRemote({ op = "ride", rid = "old:60", pos = { 200, 0, 200 }, rot = { 0, 0, 0 }, parts = 1, sha = "sha:" .. sB }, "c2")
+end
+RunJobs()
+local nLoads = 0; for _, o in ipairs(ORDER) do if o == "load" then nLoads = nLoads + 1 end end
+local nC = Rides.tCopyOf["old:60"]
+check(nLoads - nLoadsBefore == 1 and nC and rides[nC] and rides[nC].content == "Version 3", "nur die neueste Version wird eingesetzt (1x laden statt 3x)")
 
 print("\nALLE RIDES-TESTS OK")
