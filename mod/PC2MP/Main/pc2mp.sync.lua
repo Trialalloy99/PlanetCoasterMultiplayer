@@ -20,6 +20,7 @@ local tostring = global.tostring
 local table = global.table
 local Log = require("pc2mp.log")
 local Net = require("pc2mp.net")
+local SaveUpload = require("pc2mp.saveupload")
 local Events = require("pc2mp.events")
 local Replay = require("pc2mp.replay")
 
@@ -221,6 +222,13 @@ function Sync.OnMessage(msg, sRaw)
         Log.Write("Sync: Catch-up fertig bis Seq " .. tostring(msg.serverSeq))
     elseif t == "join" or t == "leave" then
         Log.Write("Sync: " .. t .. " " .. tostring(msg.name or msg.clientId))
+    elseif t == "quickSave" then
+        -- jemand will joinen: schnell speichern + hochladen (pc2mp.saveupload)
+        Log.Write("Sync: Quick-Save angefordert von " .. tostring(msg.by))
+        local ok, err = pcall(SaveUpload.QuickSave, msg.seq)
+        if not ok then Log.Write("Sync: Quick-Save Fehler: " .. tostring(err)) end
+    elseif t == "saveStored" then
+        Log.Write("Sync: Server hat den Spielstand gespeichert (seq " .. tostring(msg.seq) .. ")")
     elseif t == "error" then
         Log.Write("Sync: Server-Fehler " .. tostring(msg.code) .. ": " .. tostring(msg.msg))
     end
@@ -293,6 +301,9 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    SaveUpload.Persist = Sync.Persist
+    SaveUpload.fnSend = Net.Send
+    SaveUpload.fnCanUpload = function() return Sync.bActive and not Sync.bWaitConnect and Net.IsConnected() end
     Sync.bActive = true
     api.pc2mp.Sync = Sync -- für den Undo-Hook (läuft in einem anderen Modul-Kontext)
     Log.Write("Sync: Multiplayer aktiv, Room " .. tostring(Sync.sRoom) .. ", Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
@@ -307,6 +318,11 @@ function Sync.GetPersistState()
     local tMap = {}
     for sNet, H in pairs(Sync.tByNet) do
         if H.partID ~= nil then tMap[sNet] = H.partID end
+    end
+    -- Das Spiel speichert gerade -> danach die Datei auf den Server laden (#21)
+    if Sync.bActive then
+        local ok, err = pcall(SaveUpload.OnSaveStarted, api.pc2mp.nLastSeq)
+        if not ok then Log.Write("Sync: SaveUpload Fehler: " .. tostring(err)) end
     end
     return { lastSeq = api.pc2mp.nLastSeq, map = tMap }
 end
@@ -361,6 +377,8 @@ function Sync.Tick()
         return
     end
     Net.Pump(Sync.OnMessage, 32)
+    local okU, errU = pcall(SaveUpload.Tick)
+    if not okU then Log.Write("SaveUpload.Tick Fehler: " .. tostring(errU)) end
     local sStatus, _, _, nConn = Net.Status()
     local sKey = sStatus .. "/" .. tostring(nConn)
     if sKey ~= Sync.nLastStatusLog then

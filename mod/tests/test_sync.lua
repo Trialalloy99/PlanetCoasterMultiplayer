@@ -74,6 +74,10 @@ package.preload["pc2mp.worldedit"] = function()
     function W.Apply(a, off, done) weApplied[#weApplied + 1] = a; if done then done(true) end end
     return W
 end
+local suStarted = {}
+package.preload["pc2mp.saveupload"] = function()
+    return { OnSaveStarted = function(n) suStarted[#suStarted + 1] = n end, QuickSave = function() end, Tick = function() end }
+end
 preload("pc2mp.sync")
 
 local Sync = require("pc2mp.sync")
