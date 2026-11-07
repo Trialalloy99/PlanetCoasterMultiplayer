@@ -39,6 +39,10 @@ Eco.nFrame = 0
 Eco.tGenerated = {}          -- Staff-Entity -> { prefab, x } (aus GenerateRandomStaff)
 Eco.tSeenStaff = {}          -- Staff-Entity -> true (war schon einmal abgesetzt -> "move")
 Eco.bApplying = false
+-- Einstellen per Code (GenerateRandomStaff) stürzt im Spiel ab (Crash-Dumps 13:32/13:51: Zugriff mit ID -1),
+-- vermutlich weil der Platzier-Modus des Spielers gleichzeitig schon den nächsten Mitarbeiter vorbereitet.
+-- Bis das geklärt ist: Einstellen wird erkannt und angezeigt, aber NICHT nachgebaut.
+Eco.bHireEnabled = false
 Eco.bTwinMode = false        -- Testmodus: Mitarbeiter-Zwillinge über tTwinStaff statt über den Namen
 Eco.tTwinStaff = {}          -- Name des Originals -> Entity des Zwillings
 
@@ -121,6 +125,10 @@ function Eco.OnStaffPlaced(e)
     if g ~= nil and not Eco.tSeenStaff[e] then
         Eco.tGenerated[e] = nil
         Eco.tSeenStaff[e] = true
+        if not Eco.bHireEnabled then
+            Note("Mitarbeiter eingestellt: " .. sName .. " (Nachbau beim Mitspieler noch abgeschaltet: Absturz im Spiel)")
+            return
+        end
         Note("Mitarbeiter eingestellt: " .. sName)
         Dispatch({ op = "staff", act = "hire", prefab = g.prefab, x = g.x, pos = p, name = sName })
     else

@@ -41,7 +41,7 @@ function PC2MPManager.Init(self, _tProperties, _tEnvironment)
 end
 
 function PC2MPManager.Activate(self)
-    Log.Write("Manager Activate")
+    Log.Write("Manager Activate (Mod-Version " .. tostring(TestMode.sModVersion) .. ")")
     api.pc2mp = api.pc2mp or {}
     api.pc2mp.bInPark = true
     local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)

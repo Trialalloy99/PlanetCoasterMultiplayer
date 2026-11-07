@@ -176,7 +176,7 @@ function renderTest(st) {
   else if (t.on && t.mp) { text = `An, aber in diesem Park läuft Multiplayer (Room „${t.room || '?'}“). Park neu laden, dann startet der Testmodus.`; cls = 'warn'; }
   else if (t.on && st.mode === 'park') { text = 'An · Park neu laden, dann startet der Testmodus'; cls = 'warn'; }
   else if (t.on) { text = 'An · startet, sobald du einen Park lädst'; cls = 'ok'; }
-  status.textContent = text;
+  status.textContent = text + (t && t.version ? ` · Mod ${t.version}` : '');
   status.className = 'sub ' + cls;
   box.disabled = test.busy || !st || !st.responding || !t;
   if (t && !test.busy) {

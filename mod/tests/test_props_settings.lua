@@ -299,7 +299,7 @@ check(not GameState.ApplyRemote({ op = "call", k = "os.execute", a = { "x" } }, 
 -- Testmodus-Loopback
 GameState.tListeners = { GameState.LoopbackListener }
 park:SetParkEntranceAdultTicketPrice(42)
-NOW = 20; GameState.Tick()
+NOW = 20; GameState.Tick(); GameState.Tick()
 check(parkState.price == 42, "Loopback: Preis bleibt korrekt gesetzt")
 local bApplied = false
 for _, l in ipairs(log) do if l:find("angewendet park.SetParkEntranceAdultTicketPrice von Testmodus", 1, true) then bApplied = true end end
@@ -319,6 +319,12 @@ local sent2 = {}
 GS2.tListeners = { function(a) sent2[#sent2 + 1] = a end }
 parkFn:SetParkOpenForGuests(false)
 check(closed == true and #sent2 == 1 and sent2[1].k == tgtOpen.k, "Park-API mit __index-Funktion wird abgefangen")
+GS2.tListeners = { GS2.LoopbackListener }
+parkFn:SetParkOpenForGuests(true)
+check(closed == false and #GS2.tLoopQueue == 1, "Loopback wartet auf den nächsten Frame (kein verschachtelter Aufruf)")
+GS2.Tick()
+check(#GS2.tLoopQueue == 0, "Loopback im nächsten Frame ausgeführt")
+GS2.tListeners = { function(a) sent2[#sent2 + 1] = a end }
 GS2.ApplyRemote({ op = "call", k = "park.SetParkOpenForGuests", a = { true }, n = 1 }, "c2")
 check(closed == false and #sent2 == 1, "Remote-Anwendung darauf ohne Echo")
 

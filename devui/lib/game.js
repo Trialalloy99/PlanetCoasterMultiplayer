@@ -26,6 +26,7 @@ function normTest(t) {
     count: Number(t.count) || 0,
     log: asArray(t.log).map(String),
     mp: !!t.mp,
+    version: t.version || null,
     room: t.room || null,
   };
 }

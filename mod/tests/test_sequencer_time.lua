@@ -351,6 +351,12 @@ local Eco = require("pc2mp.economy")
 Eco.Install(twE)
 local ecoOut = {}
 Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
+local eOff = twE.staff:GenerateRandomStaff("Staff_Janitor", 0, tok)
+staffPos[eOff] = { 1, 0, 1 }
+twE.staff:SetStaffMemberSuspended(eOff, false, nil)
+check(#ecoOut == 0, "Einstellen ist standardmäßig abgeschaltet (Absturz im Spiel), wird nur angezeigt")
+Eco.bHireEnabled = true
+Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eNew = twE.staff:GenerateRandomStaff("Staff_Mechanic", 0, tok)
 staffPos[eNew] = { 50, 0, 50 }
 twE.staff:SetStaffMemberSuspended(eNew, false, nil)

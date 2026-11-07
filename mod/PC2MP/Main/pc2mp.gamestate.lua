@@ -244,6 +244,15 @@ end
 
 function GameState.Tick()
     GameState.nFrame = GameState.nFrame + 1
+    if #GameState.tLoopQueue > 0 then
+        local tQ = GameState.tLoopQueue
+        GameState.tLoopQueue = {}
+        for _, a in ipairs(tQ) do
+            local ok, err = pcall(GameState.LoopbackApply, a)
+            if not ok then Log.Write("GameState: Loopback Fehler: " .. tostring(err)) end
+        end
+    end
+    if GameState.nFrame % 120 == 0 then pcall(GameState.PollWeather) end
     if GameState.tMissing and #GameState.tMissing > 0 and GameState.nFrame % 60 == 0 and (GameState.nRetries or 0) < 30 then
         GameState.nRetries = (GameState.nRetries or 0) + 1
         pcall(GameState.WrapMissing, GameState.nRetries == 30)
@@ -472,9 +481,35 @@ function GameState.WatchWeather()
     return ok
 end
 
+-- Fallback, wenn es die Wetter-Nachricht nicht gibt (Log 2026-11-07): Zustand alle 120 Frames abfragen
+function GameState.PollWeather()
+    local w = GameState.tWorldAPIs and GameState.tWorldAPIs.weather
+    if w == nil then return end
+    local function C(m) local f = w[m]; if type(f) ~= "function" then return nil end; local ok, v = pcall(f, w); return ok and v or nil end
+    local t = { storm = C("IsStormActive") and true or false, stormType = C("GetActiveStormType"),
+                temp = C("GetExposedTemperature") }
+    if type(t.temp) == "number" then t.temp = math.floor(t.temp + 0.5) end
+    local s = ToJson(t) or Log.ToStr(t)
+    if s ~= GameState.sLastWeather then
+        local bFirst = GameState.sLastWeather == nil
+        GameState.sLastWeather = s
+        Note((bFirst and "Wetter: " or "Wetter gewechselt: ") .. "Sturm " .. (t.storm and ("ja (Typ " .. tostring(t.stormType) .. ")") or "nein")
+            .. ", Temperatur " .. tostring(t.temp))
+        if not bFirst then
+            for _, fn in ipairs(GameState.tWeatherListeners) do pcall(fn, { op = "weather", m = t }) end
+        end
+    end
+end
+
 -- Testmodus ohne Server: Aktion durch JSON schicken (wie übers Netz) und selbst wieder anwenden.
 -- Der Wert ist schon gesetzt -> prüft Erfassung, Serialisierung und Anwenden ohne sichtbare Änderung.
+-- Nie synchron im Aufruf des Spiels zurückspielen (verschachtelter Aufruf in nativen Code) -> nächster Frame
+GameState.tLoopQueue = {}
 function GameState.LoopbackListener(tAction)
+    table.insert(GameState.tLoopQueue, tAction)
+end
+
+function GameState.LoopbackApply(tAction)
     local sJson = ToJson(tAction)
     local okP, bOk, t = pcall(api.json.Parse, sJson or "")
     if not (okP and bOk and type(t) == "table") then

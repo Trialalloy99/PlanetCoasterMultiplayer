@@ -22,6 +22,17 @@ local tonumber = global.tonumber
 
 local ER = {}
 ER.nRadius = 1.5
+-- nOffsetX / sNameSuffix / fnStaffMap liegen in api.pc2mp.tERCfg, damit alle Modul-Kontexte dieselben Werte sehen
+local tShared = { nOffsetX = true, sNameSuffix = true, fnStaffMap = true }
+local function Cfg()
+    api.pc2mp = api.pc2mp or {}
+    api.pc2mp.tERCfg = api.pc2mp.tERCfg or {}
+    return api.pc2mp.tERCfg
+end
+global.setmetatable(ER, {
+    __index = function(_, k) if tShared[k] then return Cfg()[k] end end,
+    __newindex = function(t, k, v) if tShared[k] then Cfg()[k] = v else global.rawset(t, k, v) end end,
+})
 
 local function Call(obj, sMethod, ...)
     if obj == nil then return nil end
