@@ -91,7 +91,11 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(self.srv.wait_closed(), 3)
         except asyncio.TimeoutError:
             pass
+        f = getattr(self.server, "_flusher", None)
+        if f is not None:
+            f.cancel()
         for r in self.server.rooms.values():
+            r.store.write_meta()
             r.store.close()
 
     def nid(self, n):

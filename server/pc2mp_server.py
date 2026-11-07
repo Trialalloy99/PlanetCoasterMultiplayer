@@ -33,14 +33,16 @@ QUICKSAVE_TIMEOUT = 90.0
 log = logging.getLogger("pc2mp")
 
 
-def _atomic_write(path: Path, data: bytes) -> None:
+def _atomic_write(path: Path, data: bytes, sync: bool = False) -> None:
+    # sync=False: kein fsync (auf dem geteilten VPS kann fsync minutenlang hängen); os.replace bleibt atomar
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
-            os.fsync(f.fileno())
+            if sync:
+                os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -67,6 +69,7 @@ class ParkStore:
         self.save_meta_path = root / "save.json"
         self.backup_dir = root / "backups"
         self.meta = {"serverSeq": 0, "nextNetId": 1}
+        self.meta_dirty = False
         if self.meta_path.exists():
             self.meta.update(json.loads(self.meta_path.read_text("utf-8")))
         else:
@@ -85,16 +88,23 @@ class ParkStore:
     def _recover_seq(self) -> None:
         # Falls der Server zwischen Append und Meta-Write abgestürzt ist
         last = 0
+        max_net = 0
+        prefix = self.meta.get("netPrefix", "") + "n"
         if self.actions_path.exists():
             with open(self.actions_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
                         try:
-                            last = max(last, int(json.loads(line).get("seq", 0)))
-                        except (ValueError, json.JSONDecodeError):
+                            m = json.loads(line)
+                            last = max(last, int(m.get("seq", 0)))
+                            nid = str((m.get("action") or {}).get("netId") or "")
+                            if nid.startswith(prefix) and nid[len(prefix):].isdigit():
+                                max_net = max(max_net, int(nid[len(prefix):]))
+                        except (ValueError, json.JSONDecodeError, AttributeError):
                             log.warning("defekte Zeile in actions.jsonl ignoriert")
         self.meta["serverSeq"] = max(self.meta["serverSeq"], last)
+        self.meta["nextNetId"] = max(self.meta["nextNetId"], max_net + 1)
 
     @property
     def seq(self) -> int:
@@ -106,11 +116,12 @@ class ParkStore:
         return f"{self.meta.get('netPrefix', '')}n{n}"
 
     def append_action(self, msg: dict) -> None:
+        # Kein fsync hier: auf dem (geteilten) VPS hängt fsync bei hoher I/O-Last minutenlang und blockierte
+        # den ganzen Server. flush() reicht gegen Server-Absturz; meta.json schreibt der Flusher (Thread).
         self.meta["serverSeq"] = msg["seq"]
         self._actions_file.write(json.dumps(msg, separators=(",", ":"), ensure_ascii=False) + "\n")
         self._actions_file.flush()
-        os.fsync(self._actions_file.fileno())
-        self.write_meta()
+        self.meta_dirty = True
 
     def write_meta(self) -> None:
         _atomic_write(self.meta_path, json.dumps(self.meta, indent=2).encode("utf-8"))
@@ -224,6 +235,23 @@ class Server:
             self.rooms[store.name] = Room(store)
         log.info("%d Rooms geladen: %s", len(self.rooms), ", ".join(self.rooms) or "-")
 
+    async def _meta_flusher(self) -> None:
+        while True:
+            await asyncio.sleep(2.0)
+            for r in list(self.rooms.values()):
+                if r.store.meta_dirty:
+                    r.store.meta_dirty = False
+                    meta = json.dumps(r.store.meta, indent=2).encode("utf-8")
+                    try:
+                        await asyncio.to_thread(_atomic_write, r.store.meta_path, meta)
+                    except OSError as e:
+                        log.warning("meta.json für %r nicht geschrieben: %s", r.name, e)
+                        r.store.meta_dirty = True
+
+    def ensure_flusher(self) -> None:
+        if getattr(self, "_flusher", None) is None:
+            self._flusher = asyncio.create_task(self._meta_flusher())
+
     # --------------------------------------------------------------- Rooms
     def get_room(self, name: str, create: bool) -> Room | None:
         name = str(name or "").strip()[:64]
@@ -270,6 +298,7 @@ class Server:
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
         client: Client | None = None
+        self.ensure_flusher()
         try:
             line = await reader.readline()
             hello = json.loads(line) if line else None
@@ -481,8 +510,9 @@ class Server:
             seq = room.store.seq                  # neuer Server / manueller Upload: Stand = jetzt
         else:
             seq = min(int(info.get("seq", room.store.seq) or 0), room.store.seq)
-        room.store.store_save(data, {"seq": seq, "name": info.get("name", "save.park2"),
-                                     "size": len(data), "sha256": sha, "from": c.name})
+        async with room.lock:
+            await asyncio.to_thread(room.store.store_save, data, {"seq": seq, "name": info.get("name", "save.park2"),
+                                                                  "size": len(data), "sha256": sha, "from": c.name})
         await c.send({"t": "saveStored", "seq": seq, "room": room.name})
         log.info("Room %r: Spielstand von %s gespeichert (seq %d, %d Bytes)", room.name, c.name, seq, len(data))
         if qs is not None and qs["saver"] is c:
@@ -499,7 +529,7 @@ class Server:
         if info is None:
             await c.send({"t": "error", "code": "no_save", "msg": "kein Spielstand vorhanden"})
             return
-        data = room.store.save_path.read_bytes()
+        data = await asyncio.to_thread(room.store.save_path.read_bytes)
         await c.send({"t": "saveBegin", "room": room.name, **info})
         for i in range(0, len(data), SAVE_CHUNK):
             await c.send({"t": "saveChunk", "i": i // SAVE_CHUNK,
@@ -587,6 +617,7 @@ async def run(host: str, port: int, data_dir: Path, default_room: str) -> None:
             await srv.serve_forever()
     finally:
         for r in server.rooms.values():
+            r.store.write_meta()
             r.store.close()
 
 
