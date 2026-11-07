@@ -22,7 +22,7 @@ local require = global.require
 local Log = require("pc2mp.log")
 
 local TestMode = {}
-TestMode.sModVersion = "2026-11-07.6"   -- bei jedem Build hochzählen; erscheint in der Dev-UI
+TestMode.sModVersion = "2026-11-07.7"   -- bei jedem Build hochzählen; erscheint in der Dev-UI
 TestMode.sFile = "testmode.json"
 TestMode.nDefaultOffset = 25.0
 TestMode.nMaxLog = 40
@@ -138,6 +138,12 @@ function TestMode.ApplyInPark(bWanted)
         Eco.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
         Eco.bCashMaster, Eco.bHasPeers, Eco.nCashEvery = true, true, 900
         local Replay = require("pc2mp.replay")
+        local Pools = require("pc2mp.pools")
+        Pools.nOffsetX = nOff
+        Pools.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
+        Pools.tListeners = { function(a) Pools.Apply(a, "Testmodus") end }
+        local Clock = require("pc2mp.clock")
+        Clock.fnOnEvent = TestMode.Note
         -- Fahrgeschäfte/Achterbahnen: Blaupause lokal als Zwilling bei +Versatz einsetzen (live bei jeder Änderung)
         local Rides = require("pc2mp.rides")
         Rides.bTestMode, Rides.nOffsetX = true, nOff
@@ -164,6 +170,8 @@ function TestMode.ApplyInPark(bWanted)
             require("pc2mp.breakdowns").tListeners = {}
             local Rides = require("pc2mp.rides")
             Rides.tListeners, Rides.bTestMode, Rides.nOffsetX = {}, false, 0
+            local Pools = require("pc2mp.pools")
+            Pools.tListeners, Pools.nOffsetX = {}, 0
             local Eco = require("pc2mp.economy")
             Eco.tListeners, Eco.bCashMaster, Eco.nOffsetX, Eco.sNameSuffix, Eco.bTwinMode = {}, false, 0, nil, false
             local ER = require("pc2mp.entref")

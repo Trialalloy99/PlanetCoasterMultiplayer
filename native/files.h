@@ -14,7 +14,8 @@ int    files_valid_name(const char *s, size_t n, const char *ext); /* [A-Za-z0-9
 int    files_write_data(const char *name, size_t nl, const char *data, size_t len, char *err, size_t ecap);
 char  *files_read_data(const char *name, size_t nl, size_t *len);   /* malloc; NULL = fehlt */
 
-int    files_saves_dir(char *out, size_t cap);     /* ...\Saved Games\Frontier Developments\Planet Coaster 2\<id>\Saves */
+int    files_saves_dir(char *out, size_t cap);
+int    files_find_save(const char *prefix, size_t pl, const char *ext, char *out, size_t cap); /* neueste <prefix>*<ext> */     /* ...\Saved Games\Frontier Developments\Planet Coaster 2\<id>\Saves */
 char  *files_save_list_json(size_t *len);          /* [{"name":..,"size":..,"mtime":..}], neueste zuerst; malloc */
 char  *files_save_info_json(const char *name, size_t nl, size_t *len);  /* {"name","size","sha256","chunks"} */
 char  *files_save_read_chunk_b64(const char *name, size_t nl, long long index, size_t *len);

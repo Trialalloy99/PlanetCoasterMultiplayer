@@ -5,11 +5,12 @@
 --/  enthält: Strecke, Stationen, Wagen/Züge, Farben, Muster, Modus/Sequenz, Musik, Auslöser.
 --/
 --/  Verifiziert im dekompilierten Lua (Stand 2026-11-07), noch NICHT im Spiel getestet:
---/    Export  (GamefaceBlueprintSaveUIMode / ParkLoadSaveManager.SaveBlueprintToFile):
+--/    Export  (GamefaceBlueprintSaveUIMode / ParkLoadSaveManager.SaveBlueprintToSaveToken):
 --/      sel = worldserialisation:CreateSaveSelection(); sel:AddEntityID(nRideID)
---/      worldserialisation:RequestSaveBlueprintToFile(sPfad, sel, true); warten bis HasSaveToFileCompleted()
---/    Einsetzen (BlueprintPlacementMode.CreateNew):
---/      worldserialisation:LoadBlueprintFromFile(sPfad); clh = editors:CreateUndoOperationsHierarchy()
+--/      api.save.RequestSave(owner, {type="blpr2", customname, selection=sel, oncomplete}) -> Token
+--/      (RequestSaveBlueprintToFile ist ein Debug-Weg und schreibt im Spiel nichts)
+--/    Einsetzen (BlueprintPlacementMode.CreateNew / LoadBlueprintFromSaveToken):
+--/      api.save.RequestLoad(token, {oncomplete}); clh = editors:CreateUndoOperationsHierarchy()
 --/      warten bis clh:IsLoadedBlueprintReadyForEditing(); mo = clh:CreateCompositeObject({})
 --/      clh:AddBlueprintToCompositeObject(mo); mo:SetCompositeOriginToOBBCentre(); mo:SetTransform(T); Commit
 --/    Abreißen (SelectAndEditComponent): Flatride: flatrides:RemoveFlatRide(clh, flatrides:GetFlatRideEditToken(id))
@@ -254,11 +255,32 @@ function Rides.Dispatch(t)
 end
 
 ---------------------------------------------------------------------
--- Export
+-- Export (Spielstand-System wie die Blaupausen-UI; der Debug-Dateiweg schreibt in Release-Builds nichts,
+-- Spiel-Log 2026-11-07: "Blaupause laden fehlgeschlagen", keine Datei)
+--   api.save.RequestSave(api.player.GetGameOwner(), {type="blpr2", customname, selection, oncomplete})
+--   -> <Saves>\<customname>-XXXXXXXX.blpr2, Token = tResult.save
+--   Laden: api.save.RequestLoad(token, {oncomplete}) ; Löschen: api.save.RequestDelete(token, {})
 ---------------------------------------------------------------------
-local function FileName(rid) return "ride_" .. tostring(rid):gsub("[^%w]", "_") .. ".blueprint" end
+local function SaveName(rid) return "PC2MP_" .. tostring(rid):gsub("[^%w]", "_") end
+Rides.SaveName = SaveName
 
--- als Replay-Job: Blaupause schreiben, dann Aktion(en) verteilen
+local function WaitDone(fnStart, nMax)
+    local tRes, bDone = nil, false
+    local ok, err = pcall(fnStart, function(t) tRes = t; bDone = true end)
+    if not ok then return nil, tostring(err) end
+    local n = 0
+    while not bDone and n < (nMax or 1800) do Yield(); n = n + 1 end
+    if not bDone then return nil, "Zeitüberschreitung" end
+    if type(tRes) == "table" and tRes.exception ~= nil then return nil, tostring(tRes.exception) end
+    return tRes
+end
+
+function Rides.DeleteSave(token)
+    if token == nil then return end
+    pcall(api.save.RequestDelete, token, {})
+end
+
+-- als Replay-Job: Blaupause speichern, dann Aktion verteilen
 function Rides.ExportAndSend(nRide)
     if not Rides.tKnown[nRide] then return end
     local rid = Rides.tRidOf[nRide]
@@ -267,47 +289,52 @@ function Rides.ExportAndSend(nRide)
         Rides.tRidOf[nRide] = rid
     end
     local tr = RideTransform(nRide)
-    local sDir = DataDir()
-    if tr == nil or sDir == nil then
-        Note("Export übersprungen (Position " .. tostring(tr ~= nil) .. ", Datenordner " .. tostring(sDir) .. ")")
-        return
-    end
-    local sFile = FileName(rid)
+    if tr == nil then Note("Export übersprungen (keine Position für " .. tostring(nRide) .. ")"); return end
+    local sName = SaveName(rid)
     local bFlat = IsFlat(nRide)
     local Replay = require("pc2mp.replay")
     Rides.bBusy = true
     Replay.Enqueue("ride export " .. rid, function()
-        local ws = TW().worldserialisation
-        local sel = Call(ws, "CreateSaveSelection")
+        local sel = Call(TW().worldserialisation, "CreateSaveSelection")
         if sel == nil then Note("CreateSaveSelection fehlgeschlagen"); return false end
         if not pcall(sel.AddEntityID, sel, nRide) then Note("AddEntityID fehlgeschlagen"); return false end
-        if not pcall(ws.RequestSaveBlueprintToFile, ws, sDir .. sFile, sel, true) then
-            Note("Blaupause speichern fehlgeschlagen"); return false
-        end
-        local n = 0
-        while not Call(ws, "HasSaveToFileCompleted") and n < 600 do Yield(); n = n + 1 end
-        if n >= 600 then Note("Blaupause speichern: Zeitüberschreitung"); return false end
-        return true
-    end, function(bOk, r1)
+        local owner = api.player.GetGameOwner()
+        local tRes, sErr = WaitDone(function(fnDone)
+            api.save.RequestSave(owner, { type = "blpr2", customname = sName, selection = sel, oncomplete = fnDone })
+        end)
+        if tRes == nil then Note("Blaupause speichern fehlgeschlagen: " .. tostring(sErr)); return false end
+        return true, tRes.save
+    end, function(bOk, r1, token)
         Rides.bBusy = false
         if not (bOk and r1) then return end
-        local tAction = { op = "ride", rid = rid, pos = tr.pos, rot = tr.rot, flat = bFlat, file = sFile }
+        -- alte Export-Blaupause dieses Fahrgeschäfts aufräumen
+        if Rides.tExportToken and Rides.tExportToken[rid] then Rides.DeleteSave(Rides.tExportToken[rid]) end
+        Rides.tExportToken = Rides.tExportToken or {}
+        Rides.tExportToken[rid] = token
+        local tAction = { op = "ride", rid = rid, pos = tr.pos, rot = tr.rot, flat = bFlat, save = token, name = sName }
         Note((bFlat and "Fahrgeschäft" or "Bahn") .. " exportiert (" .. rid .. ")")
         Rides.Dispatch(tAction)
     end)
 end
 
--- Fürs Netz: Blaupause in Teilen (base64) + Abschluss-Aktion. fnSend(tAction) pro Teil.
+-- Fürs Netz: Datei aus dem Saves-Ordner in Teilen (base64, je 512 KiB roh) + Abschluss-Aktion
 function Rides.SendOverNet(tAction, fnSend)
-    local s = Native("pc2mp_read_file_b64", tAction.file)
-    if type(s) ~= "string" or #s == 0 then Note("Blaupause lesen fehlgeschlagen (" .. tostring(tAction.file) .. ")"); return false end
-    local nParts = math.max(1, math.ceil(#s / Rides.nPartSize))
-    for i = 1, nParts do
-        fnSend({ op = "ridebp", rid = tAction.rid, part = i, parts = nParts,
-                 data = s:sub((i - 1) * Rides.nPartSize + 1, i * Rides.nPartSize) })
+    local okP, P = pcall(require, "pc2mp.persist")
+    local sFile = Native("pc2mp_find_blueprint", tAction.name)
+    local tInfo = (okP and type(sFile) == "string") and P.SaveInfo(sFile) or nil
+    if type(tInfo) ~= "table" or tonumber(tInfo.chunks) == nil then
+        Note("Blaupause für " .. tostring(tAction.rid) .. " nicht gefunden (" .. tostring(sFile) .. ")")
+        return false
     end
-    fnSend({ op = "ride", rid = tAction.rid, pos = tAction.pos, rot = tAction.rot, flat = tAction.flat, parts = nParts })
-    Note("gesendet: " .. tAction.rid .. " (" .. math.floor(#s / 1024) .. " KB, " .. nParts .. " Teil(e))")
+    local nParts = math.floor(tonumber(tInfo.chunks))
+    for i = 1, nParts do
+        local sData = P.ReadSaveChunk(sFile, i - 1)
+        if type(sData) ~= "string" then Note("Blaupause lesen fehlgeschlagen (Teil " .. i .. ")"); return false end
+        fnSend({ op = "ridebp", rid = tAction.rid, part = i, parts = nParts, data = sData })
+    end
+    fnSend({ op = "ride", rid = tAction.rid, pos = tAction.pos, rot = tAction.rot, flat = tAction.flat, parts = nParts,
+             sha = tInfo.sha256 })
+    Note("gesendet: " .. tAction.rid .. " (" .. math.floor((tonumber(tInfo.size) or 0) / 1024) .. " KB, " .. nParts .. " Teil(e))")
     return true
 end
 
@@ -392,11 +419,10 @@ local function NewRideAfter(tBefore)
     return nil
 end
 
--- im Replay-Job: alte Kopie ersetzen
-function Rides.PlaceFromFile(rid, sFile, tTarget, sFrom)
+-- im Replay-Job: alte Kopie ersetzen. token = Spielstand-Token der Blaupause (api.save)
+function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     local tw = TW()
-    local sDir = DataDir()
-    if sDir == nil then Note("kein Datenordner"); return false end
+    if token == nil then Note("kein Blaupausen-Token für " .. tostring(rid)); return false end
     -- 1. alte Kopie abreißen
     local nOld = Rides.tCopyOf[rid]
     if nOld ~= nil and Rides.tKnown[nOld] then
@@ -407,8 +433,9 @@ function Rides.PlaceFromFile(rid, sFile, tTarget, sFrom)
     Rides.tCopyOf[rid] = nil
     -- 2. Blaupause laden und einsetzen
     local tBefore = Rides.AllRides()
-    if not Call(tw.worldserialisation, "LoadBlueprintFromFile", sDir .. sFile) then
-        Note("Blaupause laden fehlgeschlagen (" .. sFile .. ")")
+    local tLoad, sErr = WaitDone(function(fnDone) api.save.RequestLoad(token, { oncomplete = fnDone }) end)
+    if tLoad == nil then
+        Note("Blaupause laden fehlgeschlagen: " .. tostring(sErr))
         return false
     end
     local clh = tw.editors:CreateUndoOperationsHierarchy()
@@ -467,9 +494,34 @@ function Rides.ApplyLocal(tAction, sFrom)
     local Replay = require("pc2mp.replay")
     Rides.bBusy = true
     Replay.Enqueue("ride place " .. tostring(tAction.rid), function()
-        return Rides.PlaceFromFile(tAction.rid, tAction.file, { pos = pos, rot = rot }, sFrom)
-    end, function() Rides.bBusy = false end)
+        return Rides.PlaceFromSave(tAction.rid, tAction.save, { pos = pos, rot = rot }, sFrom)
+    end, function()
+        Rides.bBusy = false
+        -- Hilfs-Blaupause gleich wieder löschen (taucht sonst in der Blaupausen-Liste auf)
+        Rides.DeleteSave(tAction.save)
+        if Rides.tExportToken then Rides.tExportToken[tAction.rid] = nil end
+    end)
 end
+
+-- Token einer Blaupause im Saves-Ordner über die Spielstand-Liste finden (neueste mit diesem Namen)
+local function FindBlueprintToken(sCustomName, tExclude)
+    local owner = api.player.GetGameOwner()
+    local tInfo = { sort = api.save.GetExistingSaves_SortMostRecentFirst }
+    local ok, bDone, tSaves = api.save.GetExistingSaves(owner, "blpr2", tInfo)
+    local n = 0
+    while ok and not bDone and n < 600 do
+        Yield(); n = n + 1
+        ok, bDone, tSaves = api.save.GetExistingSaves(owner, "blpr2", tInfo)
+    end
+    if not ok or type(tSaves) ~= "table" then return nil end
+    for _, tok in ipairs(tSaves) do
+        local okN, s = pcall(api.save.GetSaveCustomName, tok)
+        local okI, id = pcall(api.save.GetSaveIdentifier, tok)
+        if okN and s == sCustomName and not (tExclude and okI and tExclude[tostring(id)]) then return tok end
+    end
+    return nil
+end
+Rides.FindBlueprintToken = FindBlueprintToken
 
 -- Netz: Teile sammeln, beim Abschluss Datei schreiben und einsetzen
 function Rides.ApplyRemote(a, sFrom)
@@ -505,8 +557,19 @@ function Rides.ApplyRemote(a, sFrom)
             tAll[i] = t.parts[i]
         end
         Rides.tParts[rid] = nil
-        local sFile = FileName("in_" .. rid)
-        if Native("pc2mp_write_file_b64", sFile, table.concat(tAll)) ~= 1 then Note("Blaupause schreiben fehlgeschlagen"); return end
+        -- in den Saves-Ordner schreiben (SHA-256 wird geprüft), Name eindeutig
+        local okP, P = pcall(require, "pc2mp.persist")
+        if not okP then return end
+        Rides.nInCounter = (Rides.nInCounter or 0) + 1
+        -- gleiche Form wie das Spiel: <customname>-XXXXXXXX.blpr2
+        local sFile = string.format("%s-%08X.blpr2", SaveName(rid), (Rides.nFrame * 977 + Rides.nInCounter) % 0x7fffffff)
+        for i = 1, nParts do
+            if not P.WriteSaveChunk(sFile, i - 1, tAll[i]) then
+                Note("Blaupause schreiben fehlgeschlagen (Teil " .. i .. ")"); P.AbortSave(sFile); return
+            end
+        end
+        local bFin, sFinErr = P.FinishSave(sFile, a.sha or "")
+        if not bFin then Note("Blaupause prüfen/ablegen fehlgeschlagen: " .. tostring(sFinErr)); return end
         -- eigenes Fahrgeschäft vom Mitspieler geändert? Dann ersetzen wir unser Original
         if Rides.tCopyOf[rid] == nil then
             for r, x in pairs(Rides.tRidOf) do if x == rid then Rides.tCopyOf[rid] = r end end
@@ -514,8 +577,16 @@ function Rides.ApplyRemote(a, sFrom)
         local pos, rot = V3(a.pos), V3(a.rot) or { 0, 0, 0 }
         if pos == nil then return end
         local Replay = require("pc2mp.replay")
+        local sName = SaveName(rid)
         Replay.Enqueue("ride place " .. rid, function()
-            return Rides.PlaceFromFile(rid, sFile, { pos = pos, rot = rot }, sFrom)
+            local token = FindBlueprintToken(sName)
+            if token == nil then
+                Note("Spiel erkennt die empfangene Blaupause nicht (" .. sFile .. ")")
+                return false
+            end
+            local bOk = Rides.PlaceFromSave(rid, token, { pos = pos, rot = rot }, sFrom)
+            Rides.DeleteSave(token)
+            return bOk
         end)
     end
 end

@@ -301,6 +301,22 @@ local function Emit(b)
     end
     if b.sKind == "volume" then
         FlushPack()
+        -- Pools übernimmt pc2mp.pools (Umriss-Abfrage, alle Werkzeuge) -> hier überspringen
+        if b.outlines then
+            local o = {}
+            for _, t in ipairs(b.outlines) do
+                local ol = t.outline
+                if not (type(ol) == "table" and ol.sOutlineType == "Pool") then o[#o + 1] = t end
+            end
+            b.outlines = o
+        end
+        if b.splines then
+            local o = {}
+            for _, sp in ipairs(b.splines) do
+                if not (type(sp.pathData) == "table" and sp.pathData[1] == "Pool") then o[#o + 1] = sp end
+            end
+            b.splines = o
+        end
         local bHas = (b.outlines and #b.outlines > 0) or (b.splines and #b.splines > 0)
         if bHas then Dispatch({ op = "volume", outlines = b.outlines, splines = b.splines }) end
     end

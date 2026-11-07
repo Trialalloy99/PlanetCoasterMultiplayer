@@ -162,6 +162,15 @@ handle('game-status', () => {
   return game.status();
 });
 handle('set-testmode', setTestMode);
+handle('test-clock', async hours => {
+  ensureGame();
+  const st = await game.status();
+  if (!st.responding || st.mode !== 'park') throw new Error('Bitte erst einen Park laden');
+  const r = await game.sendAndWait({ cmd: 'clocktest', hours: Number(hours) || 1 });
+  if (!r.ok) throw new Error(r.msg);
+  log(`Test: ${r.msg}`);
+  return r.msg;
+});
 handle('test-breakdown', async () => {
   ensureGame();
   const st = await game.status();

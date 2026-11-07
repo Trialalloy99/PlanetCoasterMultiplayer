@@ -179,6 +179,20 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Pools (pc2mp.pools)
+    if a.op == "pool" or a.op == "pooldel" then
+        local okP, Pools = pcall(require, "pc2mp.pools")
+        if okP then Pools.Apply(a, tostring(msg.clientId)) end
+        return
+    end
+    -- Park-Uhr des Kassenwarts (pc2mp.clock): nur live, nicht aus dem Catch-up (alte Zeiten)
+    if a.op == "clock" then
+        if Sync.bCaughtUp then
+            local okC, Clock = pcall(require, "pc2mp.clock")
+            if okC then Clock.OnTarget(global.tonumber(a.t), tostring(msg.clientId)) end
+        end
+        return
+    end
     -- Fahrgeschäfte/Achterbahnen als Blaupause (pc2mp.rides)
     if a.op == "ridebp" or a.op == "ride" or a.op == "ridedel" then
         local okR, Rides = pcall(require, "pc2mp.rides")
@@ -255,6 +269,7 @@ function Sync.OnMessage(msg, sRaw)
         OnIds(msg)
     elseif t == "welcome" then
         Sync.sMyId = msg.clientId
+        Sync.bCaughtUp = false
         Sync.tOnline = {}
         for _, c in pairs(msg.clients or {}) do
             if type(c) == "table" and c.clientId ~= nil then Sync.tOnline[c.clientId] = c.name or true end
@@ -263,6 +278,7 @@ function Sync.OnMessage(msg, sRaw)
         Log.Write("Sync: verbunden als " .. tostring(msg.clientId) .. ", Server-Seq " .. tostring(msg.serverSeq)
             .. ", Spieler online: " .. Log.ToStr(msg.clients))
     elseif t == "caughtUp" then
+        Sync.bCaughtUp = true
         Log.Write("Sync: Catch-up fertig bis Seq " .. tostring(msg.serverSeq))
     elseif t == "join" or t == "leave" then
         Log.Write("Sync: " .. t .. " " .. tostring(msg.name or msg.clientId))
@@ -285,6 +301,8 @@ end
 function Sync.UpdateRoles()
     local okE, Eco = pcall(require, "pc2mp.economy")
     if okE then pcall(Eco.UpdateMaster, Sync.sMyId, Sync.tOnline) end
+    local okC, Clock = pcall(require, "pc2mp.clock")
+    if okC and okE then Clock.bMaster, Clock.bHasPeers = Eco.bCashMaster, Eco.bHasPeers end
 end
 
 ---------------------------------------------------------------------
@@ -370,6 +388,15 @@ function Sync.Start()
     end
     if okGS then
         GameState.tWeatherListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
+    end
+    local okPo, Pools = pcall(require, "pc2mp.pools")
+    if okPo then
+        Pools.nOffsetX = 0
+        Pools.tListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
+    end
+    local okCl, Clock = pcall(require, "pc2mp.clock")
+    if okCl then
+        Clock.tListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
     end
     local okRi, Rides = pcall(require, "pc2mp.rides")
     if okRi then

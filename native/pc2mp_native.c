@@ -540,6 +540,19 @@ EXPORT int pc2mp_write_file_b64(void *L)
     return 0;
 }
 
+/* pc2mp_find_blueprint(prefix) -> neueste <prefix>*.blpr2 im Saves-Ordner | nil */
+EXPORT int pc2mp_find_blueprint(void *L)
+{
+    GUARD_TRY {
+        const char *p; size_t pl;
+        char name[MAX_PATH];
+        if (!arg_string(L, 1, &p, &pl) || !files_find_save(p, pl, ".blpr2", name, sizeof(name))) { push_nil(L); return 1; }
+        ensure_resolved();
+        return return_string(L, name, strlen(name));
+    } GUARD_CATCH { log_str("[native] pc2mp_find_blueprint: Exception"); }
+    return 0;
+}
+
 /* pc2mp_saves_dir() -> Pfad des Saves-Ordners | nil */
 EXPORT int pc2mp_saves_dir(void *L)
 {

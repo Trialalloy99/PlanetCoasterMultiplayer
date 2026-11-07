@@ -13,8 +13,8 @@ Legende: ✔ im Spiel bestätigt · ◐ gebaut + offline getestet, Ingame-Test o
 | Terrain | ✔ | pc2mp.worldedit |
 | Wege: Form, Belag, Rand, Farben | ✔ (Form) / ◐ (Farben im Test) | pc2mp.worldedit |
 | Weg-Extras (Bänke/Lampen am Weg) | ◐ | als Szenerie |
-| Achterbahnen, Fahrgeschäfte, Schienenbahnen, Rutschen: Strecke, Stationen, Wagen/Züge, Farben, Muster, Modus/Sequenz, Musik — live nach jeder Änderung | ◐ | pc2mp.rides (Blaupause exportieren → beim Mitspieler ersetzen) |
-| Pools (Form) / Pool-Objekte (Wellenmaschine usw.) | ◐ | worldedit (Volumes) / Szenerie |
+| Achterbahnen, Fahrgeschäfte, Schienenbahnen, Rutschen: Strecke, Stationen, Wagen/Züge, Farben, Muster, Modus/Sequenz, Musik — live nach jeder Änderung | ◐ (v.6 im Spiel: Datei-Export ging nicht → v.7 über das Spielstand-System) | pc2mp.rides |
+| Pools (Form, alle Werkzeuge) / Pool-Objekte (Wellenmaschine usw.) | ◐ (v.6 im Spiel: nicht erfasst → v.7 Umriss-Abfrage) | pc2mp.pools / Szenerie |
 | Läden/Toiletten/Unterhaltung als Gebäude | ◐ | als Szenerie (falls Bauteil) |
 
 ## Park-Einstellungen
@@ -32,8 +32,8 @@ Legende: ✔ im Spiel bestätigt · ◐ gebaut + offline getestet, Ingame-Test o
 | Pause, Geschwindigkeit | ✔ (im Testmodus erfasst + angewendet) |
 | feste Sonne, feste Uhrzeit | ◐ (jetzt über park-API statt HUD) |
 | Wetter erzwingen | ◐ (jetzt über weather-API) |
-| natürlicher Wetterwechsel | ◐ wird erkannt + angezeigt (`WeatherTypeChangedMessage`), Übertragung noch nicht (Zuordnung Typ→Override unbekannt) |
-| Park-Uhr selbst | ✘ keine Setz-API |
+| natürlicher Wetterwechsel | ◐ wird per Abfrage erkannt + angezeigt (Sturm/Typ/Temperatur), Übertragung noch nicht |
+| Park-Uhr (Tag + Uhrzeit) | ◐ Angleich über die Spielgeschwindigkeit (pc2mp.clock); RE: GetParkDay [Park+0x320], GetTimeOfDayActual [Park+0x328..] sind Ausgaben, keine sichere Setz-Stelle |
 
 ## Läden, Fahrgeschäft-Betrieb, Personal, Geld
 | Was | Status |
@@ -41,7 +41,8 @@ Legende: ✔ im Spiel bestätigt · ◐ gebaut + offline getestet, Ingame-Test o
 | Laden offen/zu, Auto-Einstellen, Preise, Sortiment, Produktnamen, faire Preise, Zutaten, gleicher Preis | ◐ |
 | Fahrgeschäft offen/zu, Ticketpreis + -art, Wartung, Abfahrtsintervall, Lade-/Zusammenlege-Regeln | ◐ |
 | Pool offen/zu, Name | ◐ |
-| Mitarbeiter einstellen (Absturz behoben), versetzen, entlassen, umbenennen, Gehalt, Arbeitsort, Zone | ◐ |
+| Mitarbeiter entlassen, umbenennen, Gehalt, Arbeitsort, Zone | ◐ |
+| Mitarbeiter einstellen | ✘ vorerst aus: GenerateRandomStaff per Code stürzt ab (Crash-Dumps, ID -1) |
 | Kontostand (Kassenwart = kleinste Client-ID gleicht an) | ◐ |
 | Defekte von Fahrgeschäften | ◐ |
 | Schmutz/Vandalismus von Toiletten | ✘ keine Setz-API |

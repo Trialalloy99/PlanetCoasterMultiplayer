@@ -9,7 +9,7 @@ local function check(c, msg) if not c then error("FEHLER: " .. msg, 2) end print
 
 local log = {}
 package.preload["pc2mp.log"] = function()
-    return { Write = function(s) log[#log + 1] = s end, ToStr = function(v)
+    return { Write = function(s) log[#log + 1] = s; if os.getenv("DBG") then print("LOG " .. s) end end, ToStr = function(v)
         if type(v) == "table" then local o = {}; for k, x in pairs(v) do o[#o + 1] = tostring(k) .. "=" .. tostring(x) end; return "{" .. table.concat(o, ",") .. "}" end
         return tostring(v) end }
 end
@@ -29,12 +29,24 @@ package.preload["TransformQ"] = function()
 end
 -- Dateien (Blaupausen) im Speicher
 local files = {}
+-- Saves-Ordner: Dateiname -> Inhalt; Spielstand-System kennt Tokens {file}
+local savesDir = {}
+local incoming = {}
 package.preload["pc2mp.persist"] = function()
-    return { Native = function(sFn)
-        if sFn == "pc2mp_data_dir" then return function() return "D:\\data\\" end end
-        if sFn == "pc2mp_read_file_b64" then return function(n) return files["D:\\data\\" .. n] end end
-        if sFn == "pc2mp_write_file_b64" then return function(n, s) files["D:\\data\\" .. n] = s; return 1 end end
-    end }
+    return {
+        Native = function(sFn)
+            if sFn == "pc2mp_data_dir" then return function() return "D:/data/" end end
+            if sFn == "pc2mp_find_blueprint" then return function(prefix)
+                for n in pairs(savesDir) do if n:sub(1, #prefix) == prefix then return n end end
+            end end
+        end,
+        SaveInfo = function(n) local c = savesDir[n]; return c and { chunks = 1, size = #c, sha256 = "sha:" .. c } or nil end,
+        ReadSaveChunk = function(n, i) return savesDir[n] end,
+        WriteSaveChunk = function(n, i, d) incoming[n] = (incoming[n] or "") .. d; return true end,
+        FinishSave = function(n, sha) if sha ~= "sha:" .. incoming[n] then return false, "sha" end
+            savesDir[n] = incoming[n]; incoming[n] = nil; return true end,
+        AbortSave = function(n) incoming[n] = nil end,
+    }
 end
 -- Replay: Jobs synchron als Coroutine bis zum Ende ausführen
 local jobs = {}
@@ -80,13 +92,36 @@ api = {
         CommitPreview = function() preview.commit(); return "c" end,
         Checkpoint = function() end,
     },
+    player = { GetGameOwner = function() return "owner" end },
+    save = {
+        GetExistingSaves_SortMostRecentFirst = 1,
+        RequestSave = function(owner, t)
+            local r = rides[t.selection.ids[1]]
+            local fname = t.customname .. "-0000ABCD.blpr2"
+            savesDir[fname] = "BP:" .. tostring(r.flat) .. ":" .. r.content
+            t.oncomplete({ save = { file = fname } })
+        end,
+        RequestLoad = function(tok, t)
+            local sC = savesDir[tok.file]
+            if not sC then t.oncomplete({ exception = "fehlt" }) return end
+            local flat, content = sC:match("^BP:(%a+):(.*)$")
+            loadedBp = { flat = flat == "true", content = content }
+            t.oncomplete({})
+        end,
+        RequestDelete = function(tok) savesDir[tok.file] = nil; deleted = deleted + 1 end,
+        GetExistingSaves = function() local o = {}; for n in pairs(savesDir) do o[#o + 1] = { file = n } end; return true, true, o end,
+        GetSaveCustomName = function(tok) return CustomOf(tok.file) end,
+        GetSaveIdentifier = function(tok) return tok.file end,
+    },
     track = {
         GetTrackHolder = function(id) return { id = id } end,
         RemoveHolder = function(clh, h) clh.ops[#clh.ops + 1] = function() rides[h.id] = nil end end,
         MoveTrack = function(clh, mo, h) mo.moveRide = h.id end,
     },
 }
-local loadedBp = nil
+loadedBp = nil
+deleted = 0
+function CustomOf(fname) return fname:match("^(.*)%-%x+%.blpr2$") end
 local tw = {
     rides = { GetAllRides = function() local o = {}; for id in pairs(rides) do o[#o + 1] = id end; return o end,
               IsFlatRide = function(_, id) return rides[id] and rides[id].flat or false end },
@@ -128,18 +163,6 @@ local tw = {
     end },
     worldserialisation = {
         CreateSaveSelection = function() local s = { ids = {} }; function s:AddEntityID(id) self.ids[#self.ids + 1] = id end; return s end,
-        RequestSaveBlueprintToFile = function(_, path, sel)
-            local r = rides[sel.ids[1]]
-            files[path] = "BP:" .. tostring(r.flat) .. ":" .. r.content
-        end,
-        HasSaveToFileCompleted = function() return true end,
-        LoadBlueprintFromFile = function(_, path)
-            local s = files[path]
-            if not s then return false end
-            local flat, content = s:match("^BP:(%a+):(.*)$")
-            loadedBp = { flat = flat == "true", content = content }
-            return true
-        end,
     },
 }
 local Rides = require("pc2mp.rides")
@@ -174,6 +197,8 @@ local nTwin2 = Rides.tCopyOf["test:10"]
 check(rides[nTwin] == nil and nTwin2 ~= nTwin and rides[nTwin2].content:find("Looping"), "alter Zwilling abgerissen, neuer mit Looping/Zug blau")
 nRides = 0; for _ in pairs(rides) do nRides = nRides + 1 end
 check(nRides == 2, "weiterhin genau 2 Bahnen")
+local nSaves = 0; for _ in pairs(savesDir) do nSaves = nSaves + 1 end
+check(nSaves == 0 and deleted >= 2, "Hilfs-Blaupausen wieder gelöscht (nichts in der Blaupausen-Liste)")
 
 -- Flatride neu gebaut (über die Abfrage erkannt, ohne Nachricht)
 rides[20] = { flat = true, pos = { 100, 0, 0 }, rot = { 0, 0, 0 }, content = "Karussell, Sequenz B" }
@@ -190,26 +215,27 @@ rides[10] = nil
 Frames(Rides.nPollEvery + 2)
 check(rides[nTwin2] == nil and Rides.tCopyOf["test:10"] == nil, "Original abgerissen -> Zwilling abgerissen")
 
--- ---------------------------------------------------------------- 2. Netz: Teile + Einsetzen beim Mitspieler
+-- ---------------------------------------------------------------- 2. Netz: Saves-Datei senden, beim Mitspieler einsetzen
 Rides.bTestMode, Rides.nOffsetX = false, 0
-Rides.nPartSize = 10
+rides[30] = { flat = true, pos = { 5, 0, 5 }, rot = { 0, 0, 0 }, content = "Remote-Karussell" }
 local sent = {}
-files["D:\\data\\x.blueprint"] = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="   -- base64, 36 Zeichen -> 4 Teile
-Rides.SendOverNet({ op = "ride", rid = "inst9:55", pos = { 5, 0, 5 }, rot = { 0, 0, 0 }, flat = true, file = "x.blueprint" },
-    function(a) sent[#sent + 1] = a end)
-check(#sent == 5 and sent[1].op == "ridebp" and sent[4].part == 4 and sent[5].op == "ride" and sent[5].parts == 4, "Blaupause in 4 Teile + Abschluss")
--- Mitspieler empfängt (eigene Blaupausen-Datei: wir schreiben eine gültige Mock-Blaupause)
-local real = "BP:true:Remote-Karussell"
-for i, a in ipairs(sent) do
-    if a.op == "ridebp" then a.data = (i == 1) and real or "" end
-end
+Rides.tListeners = { function(a) if a.op == "ride" then Rides.SendOverNet(a, function(x) sent[#sent + 1] = x end) end end }
+Frames(Rides.nPollEvery + Rides.nDebounce + 2)
+check(#sent == 2 and sent[1].op == "ridebp" and sent[1].data:find("Remote%-Karussell") and sent[2].op == "ride" and sent[2].sha,
+    "Blaupause aus dem Saves-Ordner gesendet (mit SHA)")
+local rid30 = sent[2].rid
+rides[30] = nil
+savesDir = {}
 for _, a in ipairs(sent) do Rides.ApplyRemote(a, "c2") end
 RunJobs()
-local nCopy = Rides.tCopyOf["inst9:55"]
-check(nCopy and rides[nCopy].content == "Remote-Karussell" and math.abs(rides[nCopy].pos[1] - 5) < 0.01, "Mitspieler: Kopie exakt an der Originalposition")
+local nCopy = Rides.tCopyOf[rid30]
+check(nCopy and rides[nCopy] and rides[nCopy].content == "Remote-Karussell" and math.abs(rides[nCopy].pos[1] - 5) < 0.01,
+    "Mitspieler: Datei abgelegt, Token gefunden, Kopie exakt an der Originalposition")
+local nLeft = 0; for _ in pairs(savesDir) do nLeft = nLeft + 1 end
+check(nLeft == 0, "empfangene Blaupause danach gelöscht")
 Rides.ApplyRemote({ op = "ride", rid = "inst9:77", pos = { 0, 0, 0 }, parts = 2 }, "c2")
 check(#jobs == 0, "unvollständige Blaupause wird nicht eingesetzt")
-Rides.ApplyRemote({ op = "ridedel", rid = "inst9:55" }, "c2")
+Rides.ApplyRemote({ op = "ridedel", rid = rid30 }, "c2")
 RunJobs()
 check(rides[nCopy] == nil, "Abriss vom Mitspieler entfernt die Kopie")
 

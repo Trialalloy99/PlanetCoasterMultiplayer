@@ -205,6 +205,11 @@ async function applyTestMode() {
 }
 
 $('#test-on').addEventListener('change', applyTestMode);
+$('#btn-test-clock').addEventListener('click', async () => {
+  const r = await api.testClock(1);
+  if (!r.ok) alert(r.error);
+  await pollGame();
+});
 $('#btn-test-breakdown').addEventListener('click', async () => {
   const b = $('#btn-test-breakdown');
   b.disabled = true;

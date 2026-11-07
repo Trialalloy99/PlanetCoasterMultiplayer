@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('pc2mp', {
   refreshRooms: () => ipcRenderer.invoke('refresh-rooms'),
   setTestMode: (on, offset) => ipcRenderer.invoke('set-testmode', on, offset),
   testBreakdown: () => ipcRenderer.invoke('test-breakdown'),
+  testClock: hours => ipcRenderer.invoke('test-clock', hours),
   on: (channel, fn) => ipcRenderer.on(channel, (_e, v) => fn(v)),
 });

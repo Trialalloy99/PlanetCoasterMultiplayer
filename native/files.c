@@ -46,6 +46,12 @@ int files_valid_name(const char *s, size_t n, const char *ext)
     return 1;
 }
 
+/* Spielstaende (.park2) und Blaupausen (.blpr2, fuer Fahrgeschaefte im Multiplayer) */
+static int valid_save_name(const char *s, size_t n)
+{
+    return files_valid_name(s, n, ".park2") || files_valid_name(s, n, ".blpr2");
+}
+
 static void set_err(char *err, size_t ecap, const char *msg)
 {
     if (err && ecap) snprintf(err, ecap, "%s (Win32 %lu)", msg, GetLastError());
@@ -281,10 +287,32 @@ char *files_save_list_json(size_t *len)
     return out;
 }
 
+/* Neueste Datei <prefix>*<ext> im Saves-Ordner (z. B. "PC2MP_ride_x" + ".blpr2") -> Name in out, 1/0 */
+int files_find_save(const char *prefix, size_t pl, const char *ext, char *out, size_t cap)
+{
+    char dir[MAX_PATH], pattern[MAX_PATH];
+    WIN32_FIND_DATAA fd;
+    HANDLE hf;
+    long long best = -1;
+    if (!files_valid_name(prefix, pl, NULL) || !files_saves_dir(dir, sizeof(dir))) return 0;
+    snprintf(pattern, sizeof(pattern), "%s%.*s*%s", dir, (int)pl, prefix, ext);
+    hf = FindFirstFileA(pattern, &fd);
+    if (hf == INVALID_HANDLE_VALUE) return 0;
+    do {
+        long long t;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        if (!files_valid_name(fd.cFileName, strlen(fd.cFileName), ext)) continue;
+        t = ft_to_unix(fd.ftLastWriteTime);
+        if (t >= best) { best = t; snprintf(out, cap, "%s", fd.cFileName); }
+    } while (FindNextFileA(hf, &fd));
+    FindClose(hf);
+    return best >= 0;
+}
+
 static int save_path(const char *name, size_t nl, char *out, size_t cap)
 {
     char dir[MAX_PATH];
-    if (!files_valid_name(name, nl, ".park2") || !files_saves_dir(dir, sizeof(dir))) return 0;
+    if (!valid_save_name(name, nl) || !files_saves_dir(dir, sizeof(dir))) return 0;
     snprintf(out, cap, "%s%.*s", dir, (int)nl, name);
     return 1;
 }
@@ -342,7 +370,7 @@ int files_save_write_chunk_b64(const char *name, size_t nl, long long index, con
     LARGE_INTEGER pos;
     DWORD w = 0;
     int ok;
-    if (!files_valid_name(name, nl, ".park2")) { snprintf(err, ecap, "ungueltiger Spielstand-Name"); return 0; }
+    if (!valid_save_name(name, nl)) { snprintf(err, ecap, "ungueltiger Spielstand-Name"); return 0; }
     if (index < 0 || index * (long long)FILES_SAVE_CHUNK >= (long long)FILES_MAX_SAVE) { snprintf(err, ecap, "Chunk-Index ausserhalb"); return 0; }
     raw = (unsigned char *)malloc(blen / 4 * 3 + 3);
     if (!raw) { snprintf(err, ecap, "kein Speicher"); return 0; }
@@ -380,7 +408,7 @@ int files_save_finish(const char *name, size_t nl, const char *sha_hex, size_t s
 void files_save_abort(const char *name, size_t nl)
 {
     char part[MAX_PATH];
-    if (!files_valid_name(name, nl, ".park2")) return;
+    if (!valid_save_name(name, nl)) return;
     part_path(name, nl, part, sizeof(part));
     DeleteFileA(part);
 }

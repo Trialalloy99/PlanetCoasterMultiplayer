@@ -26,6 +26,8 @@ local TestMode = require("pc2mp.testmode")
 local Breakdowns = require("pc2mp.breakdowns")
 local Economy = require("pc2mp.economy")
 local Rides = require("pc2mp.rides")
+local Clock = require("pc2mp.clock")
+local Pools = require("pc2mp.pools")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -76,6 +78,12 @@ function PC2MPManager.Activate(self)
     GameState.tListeners = {}
     Breakdowns.tListeners = {}
     pcall(Breakdowns.Install, tWorldAPIs)
+    Pools.tListeners = {}
+    local okPo, errPo = pcall(Pools.Install, tWorldAPIs)
+    if not okPo then Log.Write("Pools.Install Fehler: " .. tostring(errPo)) end
+    Clock.tListeners = {}
+    local okCl, errCl = pcall(Clock.Install, tWorldAPIs)
+    if not okCl then Log.Write("Clock.Install Fehler: " .. tostring(errCl)) end
     Rides.tListeners = {}
     local okRi, errRi = pcall(Rides.Install, tWorldAPIs)
     if not okRi then Log.Write("Rides.Install Fehler: " .. tostring(errRi)) end
@@ -121,6 +129,10 @@ function PC2MPManager.Advance(self, _nDeltaTime)
     if not ok then Log.Write("Replay.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(WorldEdit.Tick)
     if not ok then Log.Write("WorldEdit.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(Pools.Tick)
+    if not ok then Log.Write("Pools.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(Clock.Tick)
+    if not ok then Log.Write("Clock.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Rides.Tick)
     if not ok then Log.Write("Rides.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Economy.Tick)
@@ -141,6 +153,7 @@ function PC2MPManager.Deactivate(self)
         api.pc2mp.fnTestModeChanged = nil
     end
     pcall(TestMode.OnParkLeft)
+    pcall(Clock.Release)
     pcall(Sync.Stop)
     pcall(Events.Unregister)
 end
