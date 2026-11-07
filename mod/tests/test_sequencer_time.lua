@@ -222,21 +222,22 @@ function Hud:SetWeatherOverride(n) self.weather = n end
 function Hud:ChangeFixedSunTime(n) self.sun = n end
 local hud = setmetatable({ paused = false, speed = 1 }, Hud)
 api.world = { GetActive = function() return 1 end, GetScript = function() return HUDREADY and { mainHUD = hud } or {} end }
-GameState.Install({}, nil)
+local weatherApi = { cur = 0, SetWeatherOverride = function(self, n) self.cur = n end }
+GameState.Install({ weather = weatherApi }, nil)
 check(#GameState.tMissing > 0, "HUD noch nicht da -> Ziele fehlen")
 HUDREADY = true
 for _ = 1, GameState.nWarmupFrames do GameState.Tick() end
 local nTime = 0
 for _, t in ipairs(GameState.tTargets) do if t.hud and not (function() for _, m in ipairs(GameState.tMissing) do if m == t then return true end end end)() then nTime = nTime + 1 end end
-check(nTime >= 3, "HUD-Ziele später per Nachversuch erfasst (" .. nTime .. ")")
+check(nTime == 1, "HUD-Ziel (Geschwindigkeit) später per Nachversuch erfasst")
 local sent = {}
 GameState.tListeners = { function(x) sent[#sent + 1] = x end }
 hud:ChangeSimulationSpeedSettings(nil, 3)
 check(#sent == 1 and sent[1].k == "time.Speed" and sent[1].a[1] == nil and sent[1].a[2] == 3, "Geschwindigkeit gesendet (nil, 3)")
 hud:ChangeSimulationSpeedSettings(true, nil)
 check(#sent == 2 and sent[2].a[1] == true, "Pause gesendet")
-hud:SetWeatherOverride(4)
-check(#sent == 3 and sent[3].k == "weather.Override" and hud.weather == 4, "Wetter erzwingen gesendet")
+weatherApi:SetWeatherOverride(4)
+check(#sent == 3 and sent[3].k == "weather.Override" and weatherApi.cur == 4, "Wetter erzwingen gesendet")
 -- Mitspieler: über JSON zurück
 local hud2 = setmetatable({ paused = false, speed = 1 }, Hud)
 local _, sJ = api.json.Stringify(sent[1])
@@ -356,14 +357,25 @@ twE.staff:SetStaffMemberSuspended(eNew, false, nil)
 check(#ecoOut == 1 and ecoOut[1].act == "hire" and ecoOut[1].prefab == "Staff_Mechanic" and ecoOut[1].name == names[eNew], "Einstellen erkannt (Prefab, Position, Name)")
 twE.staff:SetStaffMemberSuspended(eNew, false, nil)
 check(#ecoOut == 2 and ecoOut[2].act == "move", "erneutes Absetzen = Versetzen")
-Eco.nOffsetX, Eco.sNameSuffix = 25, " (Test)"
+-- Ablauf wie im Spiel: sofort aufheben, auf Gehirn warten, dann absetzen
+local suspendLog, brainReady = {}, {}
+twE.staff.SetStaffMemberSuspended = function(_, e, b) suspendLog[#suspendLog + 1] = { e, b } end
+twE.staff.HasStaffBrain = function(_, e) return brainReady[e] == true end
+Eco.Install(twE)
+Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
+Eco.nOffsetX, Eco.bTwinMode = 25, true
 local co = coroutine.create(function() return Eco.ApplyStaff(ecoOut[1], "Testmodus") end)
 local okC, bHire = coroutine.resume(co)
-local eTwin = nil
-for e, n2 in pairs(names) do if n2 == names[eNew] .. " (Test)" then eTwin = e end end
-check(okC and bHire and eTwin and staffPos[eTwin][1] == 75, "Zwillings-Mitarbeiter eingestellt, Name übernommen, bei +25")
+local eTwin = nextStaff
+check(okC and coroutine.status(co) == "suspended" and suspendLog[1][1] == eTwin and suspendLog[1][2] == true,
+    "Zwilling sofort aufgehoben, wartet auf das Gehirn")
+check(staffPos[eTwin] == nil, "ohne Gehirn noch nicht abgesetzt")
+brainReady[eTwin] = true
+for _ = 1, 5 do if coroutine.status(co) == "suspended" then okC, bHire = coroutine.resume(co) end end
+check(okC and bHire and staffPos[eTwin][1] == 75 and suspendLog[#suspendLog][2] == false, "mit Gehirn bei +25 abgesetzt")
+check(names[eTwin] ~= names[eNew] and Eco.tTwinStaff[names[eNew]] == eTwin, "Testmodus: Zwilling nicht umbenannt, Zuordnung über Tabelle")
 check(#ecoOut == 2, "eigenes Einstellen beim Nachspielen nicht erneut gesendet")
-Eco.nOffsetX, Eco.sNameSuffix = 0, nil
+Eco.nOffsetX, Eco.bTwinMode = 0, false
 Eco.UpdateMaster("c3", { c7 = true })
 check(Eco.bCashMaster, "kleinste Client-ID ist Kassenwart")
 for _ = 1, Eco.nCashEvery do Eco.Tick() end

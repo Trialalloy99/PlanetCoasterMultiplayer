@@ -105,6 +105,7 @@ function ER.Resolve(sKind, tRef)
     if type(tRef) ~= "table" then return nil end
     if sKind == "staff" then
         if type(tRef.name) ~= "string" then return nil end
+        if ER.fnStaffMap then return ER.fnStaffMap(tRef.name) end  -- Testmodus: Zwillings-Mitarbeiter
         local sName = tRef.name .. (ER.sNameSuffix or "")
         for _, e in ipairs(ER.Staff()) do
             if Call(TW().staff, "GetStaffUIName", e) == sName then return e end

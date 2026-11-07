@@ -8,6 +8,9 @@
 --/      staff:SetStaffMemberParkZone(e, park:GetParkZoneIDFromPoint(v))
 --/    -> wir merken uns Prefab/x aus GenerateRandomStaff; beim Absetzen (Suspended=false) senden wir
 --/       { op="staff", act="hire"|"move", prefab, x, pos, name }. Name = Kennung des Mitarbeiters auf allen Clients.
+--/    WICHTIG (Absturz 2026-11-07): wie das Spiel sofort SetStaffMemberSuspended(e, true), dann warten bis
+--/    HaveRequestsCompleted(token) UND staff:HasStaffBrain(e); erst dann absetzen. Pool beim Neueinstellen = nil.
+--/    Testmodus: Zwilling NICHT umbenennen (Name ist ein Loc-Token), Zuordnung über Eco.tTwinStaff[Name].
 --/    Kontostand: money:GetCash(), money:ModifyCash(n, park.ExpenditureCategory_Uncategorised).
 --/      Gäste/Einnahmen laufen auf jedem Client eigenständig -> ein "Kassenwart" (Client mit der kleinsten
 --/      Client-ID im Room) sendet seinen Kontostand { op="cash", n }, die anderen gleichen per ModifyCash an.
@@ -36,6 +39,8 @@ Eco.nFrame = 0
 Eco.tGenerated = {}          -- Staff-Entity -> { prefab, x } (aus GenerateRandomStaff)
 Eco.tSeenStaff = {}          -- Staff-Entity -> true (war schon einmal abgesetzt -> "move")
 Eco.bApplying = false
+Eco.bTwinMode = false        -- Testmodus: Mitarbeiter-Zwillinge über tTwinStaff statt über den Namen
+Eco.tTwinStaff = {}          -- Name des Originals -> Entity des Zwillings
 
 local function Note(s)
     Log.Write("Economy: " .. s)
@@ -133,11 +138,13 @@ local function V3(t)
     return require("Vector3"):new(x + (Eco.nOffsetX or 0), y, z)
 end
 
-local function Place(e, v)
+local function Place(e, v, bAlreadySuspended)
     local tw = Eco.tWorldAPIs
-    pcall(api.transform.SetPosition, e, v)
     Eco.bApplying = true
-    pcall(tw.staff.SetStaffMemberSuspended, tw.staff, e, false)
+    -- wie StaffPlacementMode: nur einen aufgehobenen Mitarbeiter versetzen und wieder absetzen
+    if not bAlreadySuspended then pcall(tw.staff.SetStaffMemberSuspended, tw.staff, e, true) end
+    pcall(api.transform.SetPosition, e, v)
+    pcall(tw.staff.SetStaffMemberSuspended, tw.staff, e, false, nil)
     Eco.bApplying = false
     local zone = Call(tw.park, "GetParkZoneIDFromPoint", v)
     if zone ~= nil then pcall(tw.staff.SetStaffMemberParkZone, tw.staff, e, zone) end
@@ -149,8 +156,9 @@ function Eco.ApplyStaff(a, sFrom)
     if tw == nil or type(a) ~= "table" or type(a.pos) ~= "table" or type(a.name) ~= "string" then return false end
     local v = V3(a.pos)
     if v == nil then return false end
-    local sName = a.name .. (Eco.sNameSuffix or "")
-    local e = ER().Resolve("staff", { name = sName })
+    local sName = a.name
+    local e
+    if Eco.bTwinMode then e = Eco.tTwinStaff[sName] else e = ER().Resolve("staff", { name = sName }) end
     if a.act == "move" or e ~= nil then
         if e == nil then Note("Mitarbeiter '" .. sName .. "' hier nicht gefunden") return false end
         api.pc2mp.bEcoApplying = true
@@ -163,20 +171,41 @@ function Eco.ApplyStaff(a, sFrom)
     local token = api.entity.CreateRequestCompletionToken()
     Eco.bApplying = true
     local okG, eNew = pcall(tw.staff.GenerateRandomStaff, tw.staff, a.prefab, a.x, token)
+    if okG and eNew ~= nil then pcall(tw.staff.SetStaffMemberSuspended, tw.staff, eNew, true) end
     Eco.bApplying = false
     if not okG or eNew == nil then
         Note("Einstellen fehlgeschlagen: " .. tostring(eNew))
         return false
     end
+    Eco.tSeenStaff[eNew] = true
+    if not coroutine.isyieldable() then
+        Note("Einstellen: nicht in einer Coroutine, abgebrochen")
+        return false
+    end
+    -- warten bis Entity + Gehirn bereit sind (sonst nativer Absturz beim Absetzen)
     local n = 0
-    while not api.entity.HaveRequestsCompleted(token) and n < 300 do
-        if coroutine.isyieldable() then coroutine.yield() end
+    while n < 600 do
+        local bReady = api.entity.HaveRequestsCompleted(token)
+        if bReady and type(tw.staff.HasStaffBrain) == "function" then
+            local okB, bBrain = pcall(tw.staff.HasStaffBrain, tw.staff, eNew)
+            bReady = okB and bBrain == true
+        end
+        if bReady then break end
+        coroutine.yield()
         n = n + 1
     end
-    Eco.tSeenStaff[eNew] = true
+    if n >= 600 then
+        Note("Einstellen: Mitarbeiter wurde nicht fertig (kein Gehirn nach 600 Frames), bleibt aufgehoben")
+        return false
+    end
+    for _ = 1, 2 do coroutine.yield() end
     api.pc2mp.bEcoApplying = true
-    pcall(tw.staff.SetStaffUIName, tw.staff, eNew, sName)
-    Place(eNew, v)
+    if Eco.bTwinMode then
+        Eco.tTwinStaff[sName] = eNew
+    else
+        pcall(tw.staff.SetStaffUIName, tw.staff, eNew, sName)
+    end
+    Place(eNew, v, true)
     api.pc2mp.bEcoApplying = false
     Note("Mitarbeiter '" .. sName .. "' eingestellt (von " .. tostring(sFrom) .. ")")
     return true

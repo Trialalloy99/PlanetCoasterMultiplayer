@@ -82,11 +82,12 @@ GameState.tTargets = {
       ents = { "staff", nil, "place" }, slot = 2, event = true },
     { k = "staff.SetStaffMemberParkZone", api = "staff", m = "SetStaffMemberParkZone", ents = { "staff" }, slot = 1 },
     { k = "time.Speed", hud = true, m = "ChangeSimulationSpeedSettings" },
-    { k = "time.FixedSunEnabled", hud = true, m = "ChangeFixedSunEnabled" },
-    { k = "time.FixedSunTime", hud = true, m = "ChangeFixedSunTime", debounce = true },
-    { k = "time.EnableApparentTime", hud = true, m = "EnableApparentTime" },
-    { k = "time.ApparentTime", hud = true, m = "ChangeApparentTimeSettings", debounce = true },
-    { k = "weather.Override", hud = true, m = "SetWeatherOverride" },
+    -- Die HUD-Schalter für Wetter/Sonne/Uhrzeit sind als Funktionsreferenz registriert (AddListener_...(self.X, self))
+    -- -> Haken auf die APIs darunter (Spiel-Log 2026-11-07: Wetter wurde über den HUD-Haken nie erkannt)
+    { k = "time.FixedSunEnabled", api = "park", m = "SetLightingTimeOfDayUserOverrideEnabled" },
+    { k = "time.FixedSunTime", api = "park", m = "SetLightingTimeOfDayUserOverride", debounce = true },
+    { k = "time.ApparentTime", api = "park", m = "SetTimeOfDayUserOverride", debounce = true },
+    { k = "weather.Override", api = "weather", m = "SetWeatherOverride" },
 }
 GameState.tByKey = {}
 for _, t in ipairs(GameState.tTargets) do GameState.tByKey[t.k] = t end
@@ -344,6 +345,7 @@ function GameState.Install(tWorldAPIs, tEnvironment)
     GameState.nRetries = 0
     local nOk = GameState.WrapMissing(true)
     GameState.bInstalled = true
+    pcall(GameState.WatchWeather)
     return nOk
 end
 
@@ -408,8 +410,10 @@ function GameState.ApplyRemote(a, sFrom)
             end
         end
         -- Testmodus: Zwillings-Mitarbeiter behält beim Umbenennen den Zusatz
-        if tgt.k == "staff.SetStaffUIName" and ER.sNameSuffix and type(tArgs[2]) == "string" then
-            tArgs[2] = tArgs[2] .. ER.sNameSuffix
+        if tgt.k == "staff.SetStaffUIName" and ER.fnStaffMap and tArgs[1] ~= nil and type(tArgs[2]) == "string" then
+            -- Testmodus: Zuordnung Original-Name -> Zwilling unter dem neuen Namen weiterführen
+            local okE, Eco = pcall(require, "pc2mp.economy")
+            if okE then Eco.tTwinStaff[tArgs[2]] = tArgs[1] end
         end
     end
     GameState.tLast[sSlot] = ToJson(tArgs) or GameState.tLast[sSlot]
@@ -419,6 +423,32 @@ function GameState.ApplyRemote(a, sFrom)
     GameState.bApplying = false
     Note((ok and "angewendet " or "FEHLER ") .. tgt.k .. " von " .. tostring(sFrom)
         .. (ok and "" or (": " .. tostring(err))))
+    return ok
+end
+
+---------------------------------------------------------------------
+-- Natürliches Wetter: WeatherTypeChangedMessage (in der Exe, vom Spiel-Lua ungenutzt; Felder unbekannt -> loggen)
+---------------------------------------------------------------------
+GameState.tWeatherListeners = {}
+function GameState.WatchWeather()
+    local msg = api.messaging
+    local nType = msg and msg.MsgType_WeatherTypeChangedMessage
+    if nType == nil then
+        Log.Write("GameState: MsgType_WeatherTypeChangedMessage nicht vorhanden -> Wetterwechsel nicht erkennbar")
+        return false
+    end
+    if GameState.fnWeatherRecv then pcall(msg.UnregisterReceiver, nType, GameState.fnWeatherRecv) end
+    GameState.fnWeatherRecv = function(tMessages)
+        for _, m in pairs(tMessages or {}) do
+            local t = Plain(m)
+            local okJ, bOk, s = pcall(api.json.Stringify, t)
+            local sText = (okJ and bOk and s) or Log.ToStr(m)
+            Note("Wetter gewechselt: " .. sText)
+            for _, fn in ipairs(GameState.tWeatherListeners) do pcall(fn, { op = "weather", m = t }) end
+        end
+    end
+    local ok = pcall(msg.RegisterReceiver, nType, GameState.fnWeatherRecv)
+    Log.Write("GameState: Wetterwechsel-Erkennung " .. (ok and "aktiv" or "FEHLGESCHLAGEN"))
     return ok
 end
 

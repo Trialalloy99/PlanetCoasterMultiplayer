@@ -179,6 +179,11 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Wetterwechsel des Mitspielers: vorerst nur anzeigen (Zuordnung Wettertyp -> Override-Index unbekannt)
+    if a.op == "weather" then
+        Log.Write("Sync: Wetter beim Mitspieler " .. tostring(msg.clientId) .. ": " .. Log.ToStr(a.m))
+        return
+    end
     -- Mitarbeiter einstellen/versetzen, Kontostand (pc2mp.economy)
     if a.op == "staff" or a.op == "cash" then
         local okE, Eco = pcall(require, "pc2mp.economy")
@@ -357,6 +362,9 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    if okGS then
+        GameState.tWeatherListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
+    end
     local okEc, Eco = pcall(require, "pc2mp.economy")
     if okEc then
         Eco.nOffsetX, Eco.sNameSuffix = 0, nil
@@ -366,7 +374,8 @@ function Sync.Start()
         end }
     end
     local okER, ER = pcall(require, "pc2mp.entref")
-    if okER then ER.nOffsetX, ER.sNameSuffix = 0, nil end
+    if okER then ER.nOffsetX, ER.sNameSuffix, ER.fnStaffMap = 0, nil, nil end
+    if okEc then Eco.bTwinMode = false end
     local okBD, BD = pcall(require, "pc2mp.breakdowns")
     if okBD then
         BD.nOffsetX = 0

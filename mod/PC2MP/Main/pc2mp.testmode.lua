@@ -122,6 +122,7 @@ function TestMode.ApplyInPark(bWanted)
         WorldEdit.bMirror = true
         WorldEdit.tListeners = { WorldEdit.OnMirrorAction }
         GameState.tListeners = { GameState.LoopbackListener }
+        GameState.tWeatherListeners = {}
         -- Defekte: auf das gespiegelte Fahrgeschäft (falls es einen Zwilling gibt) übertragen
         local BD = require("pc2mp.breakdowns")
         BD.nOffsetX = nOff
@@ -129,9 +130,10 @@ function TestMode.ApplyInPark(bWanted)
         BD.tListeners = { function(a) BD.ApplyRemote(a, "Testmodus") end }
         -- Läden/Personal: Einstellungen wirken im Test auf den Zwilling (Laden bei +Versatz, Mitarbeiter "... (Test)")
         local ER = require("pc2mp.entref")
-        ER.nOffsetX, ER.sNameSuffix = nOff, " (Test)"
         local Eco = require("pc2mp.economy")
-        Eco.nOffsetX, Eco.sNameSuffix = nOff, " (Test)"
+        ER.nOffsetX, ER.sNameSuffix = nOff, nil
+        Eco.nOffsetX, Eco.sNameSuffix, Eco.bTwinMode = nOff, nil, true
+        ER.fnStaffMap = function(sName) return Eco.tTwinStaff[sName] end
         Eco.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
         Eco.bCashMaster, Eco.bHasPeers, Eco.nCashEvery = true, true, 900
         local Replay = require("pc2mp.replay")
@@ -152,9 +154,9 @@ function TestMode.ApplyInPark(bWanted)
             GameState.tListeners = {}
             require("pc2mp.breakdowns").tListeners = {}
             local Eco = require("pc2mp.economy")
-            Eco.tListeners, Eco.bCashMaster, Eco.nOffsetX, Eco.sNameSuffix = {}, false, 0, nil
+            Eco.tListeners, Eco.bCashMaster, Eco.nOffsetX, Eco.sNameSuffix, Eco.bTwinMode = {}, false, 0, nil, false
             local ER = require("pc2mp.entref")
-            ER.nOffsetX, ER.sNameSuffix = 0, nil
+            ER.nOffsetX, ER.sNameSuffix, ER.fnStaffMap = 0, nil, nil
             TestMode.Note("Testmodus aus")
         end
     end
