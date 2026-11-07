@@ -230,6 +230,9 @@ end
 
 -- ---------------------------------------------------------------- Spielstand-Transfer (#3)
 
+-- Beliebige Datendatei in ovldata/PC2MP/data/ (Name nur [A-Za-z0-9_.-]), z. B. für die Dev-UI (#21)
+function Persist.WriteData(sName, s) return CallInt("pc2mp_write_file", sName, s) == 1 end
+function Persist.ReadData(sName) local s = CallStr("pc2mp_read_file", sName); return type(s) == "string" and s or nil end
 function Persist.SavesDir() return CallStr("pc2mp_saves_dir") end
 function Persist.SaveList() local s = CallStr("pc2mp_save_list"); return s and FromJson(s) end
 function Persist.SaveInfo(sName) local s = CallStr("pc2mp_save_info", sName); return s and FromJson(s) end

@@ -35,6 +35,8 @@ end
 
 function PC2MPManager.Activate(self)
     Log.Write("Manager Activate")
+    api.pc2mp = api.pc2mp or {}
+    api.pc2mp.bInPark = true
     local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)
     if not ok then
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
@@ -87,6 +89,7 @@ end
 function PC2MPManager.Deactivate(self)
     Log.Write("Manager Deactivate")
     self.bActive = false
+    if api.pc2mp then api.pc2mp.bInPark = false end
     pcall(Sync.Stop)
     pcall(Events.Unregister)
 end
