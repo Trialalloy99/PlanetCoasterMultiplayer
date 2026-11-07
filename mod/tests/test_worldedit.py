@@ -82,9 +82,24 @@ function gtm:SetTerrainEditOpCollisionFlags(op, ...) GT_CALLS[#GT_CALLS + 1] = {
 function gtm:AddSmoothToChangeList(op, v, s, i, h) GT_CALLS[#GT_CALLS + 1] = { "smooth", op, v, s, i, h } end
 gameterrain = setmetatable({}, { __index = gtm })
 VOL_CALLS = {}
+TQ = {}; TQ.__index = TQ
+function TQ.FromOrPos(q, v) return setmetatable({ pos = v }, TQ) end
+function TQ:GetPos() return self.pos end
+function TQ:WithPos(v) return TQ.FromOrPos(nil, v) end
+package.loaded["TransformQ"] = TQ
+package.loaded["Quaternion"] = { Identity = "QID" }
+local MO = {}; MO.__index = MO
+function MO:GetTransform() return self.t end
+function MO:SetTransform(t) self.t = t; SET_T = (SET_T or 0) + 1 end
+function MO:GetPosition() return self.t:GetPos() end
 local vm = {}
-function vm:CreateMoveObjectForVolumeOutline(c, h, o, p, g) VOL_CALLS[#VOL_CALLS + 1] = { c = c, o = o, p = p, g = g }; return newproxy and newproxy(true) or io.stdout end
-function vm:GetVolumeOutlinesFromMoveObject(mo) return { { sRenderType = "Tarmac", nClipPriority = 3, nGroundedRequest = 1, tPoints = { V:new(1, 0, 1), V:new(4, 0, 1), V:new(4, 0, 5) } } } end
+function vm:CreateMoveObjectForVolumeOutline(c, h, o, p, g) VOL_CALLS[#VOL_CALLS + 1] = { c = c, o = o, p = p, g = g }; return setmetatable({}, MO) end
+function vm:CreateMoveObjectForVolumeSpline(h, t, bc, bcl, bra, bst) local mo = setmetatable({ t = t }, MO); SPLINES = SPLINES or {}; SPLINES[#SPLINES + 1] = { mo = mo, start = t, bStub = bst }; return mo end
+function vm:SetSplinePathData(mo, ...) mo.path = { ... } end
+function vm:SetSplineBuildingOptions(mo, ...) mo.opts = { ... } end
+function vm:SetSplineControlPoint(mo, v) mo.cps = mo.cps or {}; mo.cps[#mo.cps + 1] = v end
+function vm:CanSetSplineControlPoint(mo) return true end
+function vm:GetSplineResultData(mo) return true, mo.t0 or mo.t:GetPos(), mo.t:GetPos() end
 volumes = setmetatable({}, { __index = vm })
 local hm = {}
 function hm:GetTerrainEditOperation() return "OP" end
@@ -139,9 +154,9 @@ api.undo.CommitPreview(p)
 ''')
 check(L.eval('#ACTIONS') == 2, 'Weg -> sofort eine Aktion')
 v = to_py(L.eval('ACTIONS[2]'))
-check(v.get('op') == 'volume' and len(v.get('outlines', [])) == 1 and v['outlines'][0]['sRenderType'] == 'Tarmac', 'Umriss mit sRenderType erfasst')
+check(v.get('op') == 'volume' and len(v.get('outlines', [])) == 1 and v['outlines'][0]['prio'] == 3, 'Umriss mit Priorität erfasst')
 L.execute('VOL_CALLS = {}; WE.Apply(ACTIONS[2], 25); Replay.Run()')
-check(L.eval('#VOL_CALLS') == 1 and L.eval('VOL_CALLS[1].p') == 3 and L.eval('VOL_CALLS[1].o.tPoints[1]:X()') == 26,
+check(L.eval('#VOL_CALLS') == 1 and L.eval('VOL_CALLS[1].p') == 3 and L.eval('VOL_CALLS[1].o[1]:X()') == 26,
       'Weg-Nachbau: Umriss mit Versatz, Priorität übernommen')
 check(L.eval('#ACTIONS') == 2, 'Weg-Nachbau nicht erneut erfasst')
 
@@ -154,6 +169,58 @@ api.undo.CancelPreview(p)
 NOW = NOW + 1; WE.Tick()
 ''')
 check(L.eval('#ACTIONS') == 2, 'abgebrochene Preview -> nichts gesendet')
+
+# --- Fälle aus dem Ingame-Test 2026-11-07 ---
+# 1) nur Kollisions-Flags (Szenerie-Platzierung) -> KEINE Terrain-Aktion
+L.execute(r"""
+N0 = #ACTIONS
+local clh = editors:CreateUndoOperationsHierarchy()
+gameterrain:SetTerrainEditOpCollisionFlags(clh:GetTerrainEditOperation(), true, false, false, true, false, false)
+local w, p = api.undo.PreviewChangeList(clh:GetFullUndoChangeList())
+api.undo.CommitPreview(p)
+NOW = NOW + 1; WE.Tick()
+""")
+check(L.eval('#ACTIONS') == L.eval('N0'), 'nur Flags (Szenerie) -> keine leere Terrain-Aktion')
+
+# 2) Aktion wie vom Netz: api.json-Format mit String-Schlüsseln
+net = {"op": "terrain", "flags": {"1": True, "2": False, "3": False, "4": False, "5": False, "6": False},
+       "calls": {"1": {"m": "AddSmoothToChangeList", "a": {"1": "op", "2": {"v3": {"1": 5, "2": 1, "3": 7}}, "3": 30, "4": 1, "5": 1}},
+                 "2": {"m": "AddSmoothToChangeList", "a": {"1": "op", "2": {"v3": {"1": 6, "2": 1, "3": 7}}, "3": 30, "4": 1, "5": 1}}}}
+L.globals().NET = L.table_from(net, recursive=True)
+L.execute('GT_CALLS = {}; R_OK = nil; WE.Apply(NET, 0, function(ok, r) R_OK = r end); Replay.Run()')
+sm = [c for c in to_py(L.eval('GT_CALLS')) if c[0] == 'smooth']
+check(len(sm) == 2 and L.eval('R_OK') is True, 'Netz-Aktion mit String-Schlüsseln wird angewendet (2 Stempel)')
+check(L.eval('GT_CALLS[2][3]:X()') == 5, 'Position aus Netz-Aktion korrekt')
+
+# 3) Spline-Weg: Stub (wird abgebrochen), echter Spline mit Kontrollpunkt, Commit
+L.execute(r"""
+N1 = #ACTIONS
+local h0 = editors:CreateUndoOperationsHierarchy()
+local stub = volumes:CreateMoveObjectForVolumeSpline(h0, TQ.FromOrPos(nil, V:new(0,0,0)), true, false, false, true)
+local w0, p0 = api.undo.PreviewChangeList(h0:GetFullUndoChangeList())
+api.undo.CancelPreview(p0)
+local h = editors:CreateUndoOperationsHierarchy()
+local mo = volumes:CreateMoveObjectForVolumeSpline(h, TQ.FromOrPos(nil, V:new(10,0,10)), true, false, false, false)
+volumes:SetSplinePathData(mo, "Tarmac", "Render", "Edge", 2.0, 0.2, 3, 1, true)
+local w, p = api.undo.PreviewChangeList(h:GetFullUndoChangeList())
+for i = 1, 5 do volumes:SetSplineBuildingOptions(mo, false, true, false, 1); mo:SetTransform(TQ.FromOrPos(nil, V:new(10 + i, 0, 10))) end
+volumes:SetSplineControlPoint(mo, V:new(15, 0, 10))
+for i = 1, 5 do mo:SetTransform(TQ.FromOrPos(nil, V:new(15, 0, 10 + i))) end
+api.undo.CommitPreview(p)
+""")
+check(L.eval('#ACTIONS') == L.eval('N1') + 1, 'Spline-Weg -> genau eine Aktion (Stub ignoriert)')
+sp = to_py(L.eval('ACTIONS[#ACTIONS]'))
+spl = (sp.get('splines') or [{}])[0]
+check(sp.get('op') == 'volume' and spl.get('start') == {'tq': {'v3': [10, 0, 10]}} and spl.get('end') == {'v3': [15, 0, 15]},
+      'Spline: Start (Transform) und Ende erfasst: %s / %s' % (spl.get('start'), spl.get('end')))
+check(spl.get('cps') == [{'v3': [15, 0, 10]}] and (spl.get('pathData') or [None])[0] == 'Tarmac' and spl.get('buildOpts') == [False, True, False, 1],
+      'Spline: Kontrollpunkt, Weg-Stil, Bau-Optionen erfasst')
+L.execute('SPLINES = {}; SET_T = 0; R_SP = nil; WE.Apply(ACTIONS[#ACTIONS], 25, function(ok, r) R_SP = r end); Replay.Run()')
+check(L.eval('R_SP') is True and L.eval('#SPLINES') == 1, 'Spline-Nachbau: Commit ok, ein neuer Spline')
+check(L.eval('SPLINES[1].start:GetPos():X()') == 35 and L.eval('SPLINES[1].mo.path[1]') == 'Tarmac', 'Nachbau-Start mit Versatz, Stil übernommen')
+check(L.eval('SPLINES[1].mo.cps[1]:X()') == 40 and L.eval('SPLINES[1].mo:GetPosition():X()') == 40 and L.eval('SPLINES[1].mo:GetPosition():Z()') == 15,
+      'Nachbau: Kontrollpunkt + Ende mit Versatz')
+check(L.eval('#ACTIONS') == L.eval('N1') + 1, 'Spline-Nachbau nicht erneut erfasst')
 
 print('\nALLE WORLDEDIT-TESTS OK' if not fails else f'\n{len(fails)} FEHLER')
 sys.exit(1 if fails else 0)
