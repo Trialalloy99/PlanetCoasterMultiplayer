@@ -222,5 +222,55 @@ check(L.eval('SPLINES[1].mo.cps[1]:X()') == 40 and L.eval('SPLINES[1].mo:GetPosi
       'Nachbau: Kontrollpunkt + Ende mit Versatz')
 check(L.eval('#ACTIONS') == L.eval('N1') + 1, 'Spline-Nachbau nicht erneut erfasst')
 
+# Pool-Werkzeug: Randweg-Ring mit LOKALEN Punkten, Composite an die Mausposition verschoben (#23)
+L.execute(r"""
+package.loaded["Quaternion"].FromPackedAxisAngle = function(v) return { packed = v } end
+local COMP = {}; COMP.__index = COMP
+function COMP:GetTransform() return self.t end
+function COMP:SetTransform(t) self.t = t; self.calls[#self.calls + 1] = "SetTransform" end
+function COMP:SetCompositeOriginToOBBCentre() self.calls[#self.calls + 1] = "Origin" end
+function COMP:AlignCompositeRotation() self.calls[#self.calls + 1] = "Align" end
+COMPS = {}
+local fnOldClh = editors.CreateUndoOperationsHierarchy
+rawset(editors, "CreateUndoOperationsHierarchy", function(self)
+  local h = fnOldClh(self)
+  h.CreateCompositeObject = function() local c = setmetatable({ calls = {} }, COMP); COMPS[#COMPS + 1] = c; return c end
+  return h
+end)
+N2 = #ACTIONS
+local clh = editors:CreateUndoOperationsHierarchy()
+clh:BeginVolumeModificationsBlock()
+local comp = clh:CreateCompositeObject({})
+volumes:CreateMoveObjectForVolumeOutline(comp, clh, { sOutlineType = "Path", sRenderType = "DefaultPoolPath",
+  { vPos = V:new(-6,0,-6), sEdgeType = "DefaultPoolPathEdge" }, { vPos = V:new(6,0,-6), sEdgeType = "DefaultPoolPathEdge" },
+  { vPos = V:new(6,0,6), sEdgeType = "DefaultPoolPathEdge" } }, 4, 0)
+clh:EndVolumeModificationsBlock()
+local tr = TQ.FromOrPos(nil, V:new(-397, 1, -71))
+tr.GetOr = function() return { ToPackedAxisAngle = function() return V:new(0, 1.5, 0) end } end
+comp.t = tr
+local w, p = api.undo.PreviewChangeList(clh:GetFullUndoChangeList())
+api.undo.CommitPreview(p)
+""")
+pr = to_py(L.eval('ACTIONS[#ACTIONS]'))
+o0 = (pr.get('outlines') or [{}])[0]
+xf = o0.get('xf')
+check(L.eval('#ACTIONS') == L.eval('N2') + 1 and xf == {'pos': [-397, 1, -71], 'rot': [0, 1.5, 0]},
+      'Pool-Randweg: Endlage des Composites erfasst: %s' % (xf,))
+check('comp' not in o0, 'Composite-Userdata wird nicht gesendet')
+L.execute('COMPS = {}; R_PR = nil; WE.Apply(ACTIONS[#ACTIONS], 0, function(ok, r) R_PR = r end); Replay.Run()')
+calls = to_py(L.eval('COMPS[1].calls'))
+check(calls == ['Origin', 'Align', 'SetTransform'], 'Nachbau wie VolumeMoveMode: Ursprung, Ausrichten, Endlage (%s)' % (calls,))
+check(L.eval('COMPS[1].t:GetPos():X()') == -397 and L.eval('COMPS[1].t:GetPos():Z()') == -71, 'Nachbau an der richtigen Stelle')
+L.execute(r"""
+local clh = editors:CreateUndoOperationsHierarchy()
+clh:BeginVolumeModificationsBlock()
+volumes:CreateMoveObjectForVolumeOutline(clh:CreateCompositeObject({}), clh, { V:new(1,0,1), V:new(4,0,1) }, 3, 1)
+clh:EndVolumeModificationsBlock()
+local w, p = api.undo.PreviewChangeList(clh:GetFullUndoChangeList())
+api.undo.CommitPreview(p)
+""")
+dr = to_py(L.eval('ACTIONS[#ACTIONS]'))
+check((dr.get('outlines') or [{}])[0].get('xf') is None, 'gezeichneter Weg (nicht verschoben): keine Endlage angehängt')
+
 print('\nALLE WORLDEDIT-TESTS OK' if not fails else f'\n{len(fails)} FEHLER')
 sys.exit(1 if fails else 0)

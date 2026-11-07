@@ -31,6 +31,7 @@ local table = global.table
 local coroutine = global.coroutine
 local require = global.require
 local getmetatable = global.getmetatable
+local math = global.math
 local Log = require("pc2mp.log")
 
 local WorldEdit = {}
@@ -194,7 +195,9 @@ local function RecordVolume(sName, tArgs, tRet)
         -- (composite, clh, tOutline, nClipPriority, nGroundedRequest)
         b.sKind = "volume"
         b.outlines = b.outlines or {}
-        table.insert(b.outlines, { outline = Ser(tArgs[3]), prio = tArgs[4], grounded = tArgs[5] })
+        -- comp: Composite-Objekt. Im Verschiebe-Modus (Pool-Werkzeug: Randweg-Ring, Stempel) sind die Punkte
+        -- LOKAL und das Spiel verschiebt das Composite an die Mausposition -> Endlage beim Commit auslesen (Emit)
+        table.insert(b.outlines, { outline = Ser(tArgs[3]), prio = tArgs[4], grounded = tArgs[5], comp = tArgs[1] })
     elseif sName == "CreateMoveObjectForVolumeSpline" then
         -- (clh, tStart, bCurve, bClassic, bRightAngled, bStub)
         local mo = tRet[1]
@@ -301,6 +304,26 @@ local function Emit(b)
     end
     if b.sKind == "volume" then
         FlushPack()
+        if b.outlines then
+            for _, t in ipairs(b.outlines) do
+                local comp = t.comp
+                t.comp = nil
+                if comp ~= nil then
+                    local okT, tr = pcall(function() return comp:GetTransform() end)
+                    if okT and tr ~= nil then
+                        local okP, vp = pcall(function() return tr:GetPos() end)
+                        local okR, vr = pcall(function() return tr:GetOr():ToPackedAxisAngle() end)
+                        local pos = okP and TryVec(vp) or nil
+                        local rot = okR and TryVec(vr) or nil
+                        pos = pos and pos.v3
+                        rot = rot and rot.v3 or { 0, 0, 0 }
+                        local bMoved = pos ~= nil and (math.abs(pos[1]) + math.abs(pos[2]) + math.abs(pos[3])
+                            + math.abs(rot[1]) + math.abs(rot[2]) + math.abs(rot[3])) > 0.001
+                        if bMoved then t.xf = { pos = pos, rot = rot } end
+                    end
+                end
+            end
+        end
         -- Pools übernimmt pc2mp.pools (Umriss-Abfrage, alle Werkzeuge) -> hier überspringen
         if b.outlines then
             local o = {}
@@ -464,9 +487,30 @@ local function ApplyOutlines(t, nOffsetX)
             if ok then n = n + 1 else Log.Write("WorldEdit: Umriss-Weg Fehler: " .. tostring(err)) end
         end
     end
+    -- Verschobenes Composite (Pool-Randweg, Stempel): wie editors.volume.volumemovemode platzieren
+    local xf
+    for i = 1, MaxIndex(t.outlines) do
+        local o = t.outlines[i]
+        if o and type(o.xf) == "table" and o.xf.pos then xf = o.xf; break end
+    end
+    if xf ~= nil and n > 0 then
+        TransformQ = TransformQ or require("TransformQ")
+        Quaternion = Quaternion or require("Quaternion")
+        local okX, errX = pcall(function()
+            local pos, rot = xf.pos, xf.rot or { 0, 0, 0 }
+            if composite.DecayCompositeAlignmentType and composite.CompositeAlignmentType_Average then
+                composite:DecayCompositeAlignmentType(composite.CompositeAlignmentType_Average)
+            end
+            composite:SetCompositeOriginToOBBCentre()
+            composite:AlignCompositeRotation()
+            local q = Quaternion.FromPackedAxisAngle(Vec({ rot[1], rot[2], rot[3] }))
+            composite:SetTransform(TransformQ.FromOrPos(q, Vec({ pos[1], pos[2], pos[3] }, nOffsetX)))
+        end)
+        if not okX then Log.Write("WorldEdit: Umriss verschieben fehlgeschlagen: " .. tostring(errX)) end
+    end
     clh:EndVolumeModificationsBlock()
     if n == 0 then return false end
-    return FinishPreview(StartPreview(clh), "Weg (Umriss)")
+    return FinishPreview(StartPreview(clh), xf and "Weg (Umriss, verschoben)" or "Weg (Umriss)")
 end
 
 local function ApplySpline(sp, nOffsetX)
