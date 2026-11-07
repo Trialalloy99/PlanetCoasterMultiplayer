@@ -102,6 +102,7 @@ api = {
             t.oncomplete({ save = { file = fname } })
         end,
         RequestLoad = function(tok, t)
+            ORDER[#ORDER + 1] = "load"
             local sC = savesDir[tok.file]
             if not sC then t.oncomplete({ exception = "fehlt" }) return end
             local flat, content = sC:match("^BP:(%a+):(.*)$")
@@ -121,12 +122,14 @@ api = {
 }
 loadedBp = nil
 deleted = 0
+ORDER = {}
 function CustomOf(fname) return fname:match("^(.*)%-%x+%.blpr2$") end
 local tw = {
     rides = { GetAllRides = function() local o = {}; for id in pairs(rides) do o[#o + 1] = id end; return o end,
               IsFlatRide = function(_, id) return rides[id] and rides[id].flat or false end },
     flatrides = {},
     editors = { TerrainActionType_PathJoinPartFlatten = 1, CreateUndoOperationsHierarchy = function()
+        ORDER[#ORDER + 1] = "clh"
         local clh = { ops = {} }
         function clh:CreateCompositeObject()
             local mo = { CompositeAlignmentType_ItemAligned = 1 }
@@ -168,6 +171,12 @@ local tw = {
 local Rides = require("pc2mp.rides")
 Rides.Install(tw)
 check(messages[1] ~= nil, "RideEditedMessage registriert")
+check(Rides.tRidOf[10] ~= nil and Rides.tRidOf[10]:sub(1, 2) == "s:", "Bahn aus dem Spielstand: rid aus der Position (" .. tostring(Rides.tRidOf[10]) .. ")")
+-- Park-Laden: Ride-Messages für vorhandene Bahnen dürfen keinen Export auslösen
+messages[1]({ { rideID = 10 } })
+check(Rides.tDirty[10] == nil, "Lade-Message in der Ruhezeit ignoriert (keine Duplikate beim Join)")
+Rides.nStartQuiet = 0
+Rides.tRidOf[10] = nil -- für die folgenden (alten) Tests: wie bisher eigene rid
 
 -- ---------------------------------------------------------------- 1. Testmodus: Zwilling bei +40
 Rides.bTestMode, Rides.nOffsetX = true, 40
@@ -238,5 +247,25 @@ check(#jobs == 0, "unvollständige Blaupause wird nicht eingesetzt")
 Rides.ApplyRemote({ op = "ridedel", rid = rid30 }, "c2")
 RunJobs()
 check(rides[nCopy] == nil, "Abriss vom Mitspieler entfernt die Kopie")
+
+-- Reihenfolge wie BlueprintPlacementMode.CreateNew: Hierarchie VOR dem Laden (sonst Absturz im Spiel)
+local iLoad
+for i = #ORDER, 1, -1 do if ORDER[i] == "load" then iLoad = i; break end end
+check(iLoad and ORDER[iLoad - 1] == "clh", "Einsetzen: Undo-Hierarchie wird vor dem Laden der Blaupause angelegt")
+
+-- ---------------------------------------------------------------- 3. Bahn gibt es beim Mitspieler schon (Spielstand) -> ersetzen
+-- Maxi und Finn laden denselben Spielstand; Finn ändert "seine" Bahn (andere lokale ID, eigene rid)
+rides[50] = { flat = false, pos = { 100, 0, 100 }, rot = { 0, 0, 0 }, content = "Achterbahn alt" }
+savesDir = {}
+local sBp = "BP:false:Achterbahn neu (Looping)"
+Rides.ApplyRemote({ op = "ridebp", rid = "finn:7", part = 1, parts = 1, data = sBp }, "c2")
+local nBefore = 0; for _ in pairs(rides) do nBefore = nBefore + 1 end
+Rides.ApplyRemote({ op = "ride", rid = "finn:7", pos = { 100.3, 0, 100 }, prev = { 100, 0, 100 }, rot = { 0, 0, 0 }, parts = 1, sha = "sha:" .. sBp }, "c2")
+RunJobs()
+local nAfter = 0; for _ in pairs(rides) do nAfter = nAfter + 1 end
+local nRep = Rides.tCopyOf["finn:7"]
+check(rides[50] == nil and nRep and rides[nRep] and rides[nRep].content == "Achterbahn neu (Looping)",
+    "vorhandene Bahn (über alte Position gefunden) wird ersetzt")
+check(nAfter == nBefore, "keine doppelte Bahn")
 
 print("\nALLE RIDES-TESTS OK")

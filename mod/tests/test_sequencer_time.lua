@@ -354,7 +354,10 @@ Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eOff = twE.staff:GenerateRandomStaff("Staff_Janitor", 0, tok)
 staffPos[eOff] = { 1, 0, 1 }
 twE.staff:SetStaffMemberSuspended(eOff, false, nil)
-check(Eco.bHireEnabled and #ecoOut == 1 and ecoOut[1].act == "hire", "Einstellen ist wieder an (v.8, Spiel-Ablauf)")
+check(not Eco.bHireEnabled and #ecoOut == 0, "Einstellen abgeschaltet (Absturz beim Empfänger 2026-11-07)")
+local okH = Eco.ApplyStaff({ act = "hire", prefab = "Vendor", x = 0, pos = { 1, 0, 1 }, name = "Neu" }, "Test")
+check(okH == false, "Empfänger baut Einstellen nicht nach (Absturz-Schutz)")
+Eco.bHireEnabled = true -- folgende Prüfungen: Erkennung wie bisher
 ecoOut = {}
 Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eNew = twE.staff:GenerateRandomStaff("Staff_Mechanic", 0, tok)

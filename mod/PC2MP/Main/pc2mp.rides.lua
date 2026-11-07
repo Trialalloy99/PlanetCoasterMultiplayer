@@ -19,8 +19,15 @@
 --/      api.track.MoveTrack(clh, mo, holder); mo:GetTransform()/SetTransform()
 --/    Erkennen: RideEditedMessage {rideID} (+ weitere Ride-Messages, Felder werden geloggt),
 --/      neue/gelöschte Fahrgeschäfte über rides:GetAllRides() (alle 60 Frames).
+--/  Fixes agent:maxi (2026-11-07, Live-Test): Einsetzen lud die Blaupause, bevor die Undo-Hierarchie existierte ->
+--/    Absturz in StandaloneScenerySerialisation (_tLoad nil). Jetzt wie BlueprintPlacementMode.CreateNew: erst clh, dann laden.
+--/    Beim Park-Laden feuern Ride-Messages für vorhandene Bahnen -> jeder Client exportierte sie unter eigener rid ->
+--/    Duplikate. Jetzt: Ruhezeit nach dem Laden, Bahnen aus dem Spielstand bekommen rid "s:<Position>" (auf allen
+--/    Clients gleich), Empfänger ordnet unbekannte rids über die alte Position (prev) bzw. Zielposition einer
+--/    vorhandenen Bahn zu und ERSETZT sie statt sie zu verdoppeln. Workshop-Blaupausen: die ganze Bahn reist als
+--/    Datei mit, der Mitspieler braucht das Workshop-Item nicht.
 --/  Aktionen: { op="ridebp", rid, part, parts, data } (Blaupause in Teilen, base64)
---/            { op="ride", rid, pos, rot, flat, parts }  (nach dem letzten Teil: ersetzen)
+--/            { op="ride", rid, pos, rot, prev, flat, parts }  (nach dem letzten Teil: ersetzen; prev = Lage beim letzten Export)
 --/            { op="ridedel", rid }
 -----------------------------------------------------------------------
 local global = _G
@@ -55,6 +62,9 @@ Rides.tIgnoreUntil = {}       -- lokale RideID -> Frame (eigene Änderungen beim
 Rides.tParts = {}             -- rid -> { n, parts = {} } (eingehende Blaupause)
 Rides.tLoggedMsg = {}
 Rides.bBusy = false
+Rides.nStartQuiet = 600       -- Frames nach dem Park-Laden ohne Export (Lade-Messages für vorhandene Bahnen)
+Rides.nMatchDist = 2.0        -- m: Zuordnung unbekannter rids über die Position
+Rides.tLastPos = {}           -- lokale RideID -> Lage beim letzten Export / beim Laden
 
 local function Note(s)
     Log.Write("Rides: " .. s)
@@ -151,6 +161,8 @@ function Rides.MarkDirty(nRide, sWhy, bFromPoll)
     if nRide == nil then return end
     local nIgnore = Rides.tIgnoreUntil[nRide]
     if nIgnore and Rides.nFrame <= nIgnore then return end
+    -- direkt nach dem Park-Laden feuert das Spiel Ride-Messages für alle vorhandenen Bahnen -> nicht exportieren
+    if Rides.nFrame < Rides.nStartQuiet and Rides.tKnown[nRide] then return end
     -- eigene Kopien: während/kurz nach unserem Einsetzen nie; im Testmodus Zwillinge gar nicht
     local bCopy = false
     for _, n in pairs(Rides.tCopyOf) do if n == nRide then bCopy = true end end
@@ -168,8 +180,15 @@ function Rides.Install(tWorldAPIs)
     Rides.tWorldAPIs = tWorldAPIs
     Rides.nFrame = 0
     Rides.tDirty, Rides.tIgnoreUntil, Rides.tParts = {}, {}, {}
-    Rides.tKnown = {}
-    for _, r in ipairs(Rides.AllRides()) do Rides.tKnown[r] = true end
+    Rides.tKnown, Rides.tRidOf, Rides.tCopyOf, Rides.tLastPos = {}, {}, {}, {}
+    for _, r in ipairs(Rides.AllRides()) do
+        Rides.tKnown[r] = true
+        local tr = RideTransform(r)
+        if tr then
+            Rides.tLastPos[r] = tr.pos
+            Rides.tRidOf[r] = Rides.SaveRid(tr.pos)
+        end
+    end
     local msg = api.messaging
     Rides.tReceivers = Rides.tReceivers or {}
     for _, t in ipairs(Rides.tReceivers) do pcall(msg.UnregisterReceiver, t[1], t[2]) end
@@ -196,6 +215,27 @@ function Rides.Install(tWorldAPIs)
     end
     Log.Write("Rides installiert: " .. n .. " Nachrichten, " .. #Rides.AllRides() .. " Fahrgeschäfte im Park, Datenordner "
         .. tostring(DataDir()))
+end
+
+-- rid für Bahnen, die schon im Spielstand sind: aus der Position (auf allen Clients gleich)
+function Rides.SaveRid(pos)
+    return string.format("s:%d_%d_%d", math.floor(pos[1] + 0.5), math.floor(pos[2] + 0.5), math.floor(pos[3] + 0.5))
+end
+
+-- vorhandene Bahn an einer Position (für unbekannte rids), nur Bahnen, die nicht schon Kopie einer anderen rid sind
+function Rides.FindRideNear(pos, sExceptRid)
+    if type(pos) ~= "table" then return nil end
+    local best, bestD = nil, Rides.nMatchDist
+    for _, r in ipairs(Rides.AllRides()) do
+        local tr = RideTransform(r)
+        local bTaken = false
+        for rid, n in pairs(Rides.tCopyOf) do if n == r and rid ~= sExceptRid then bTaken = true end end
+        if tr and not bTaken then
+            local d = math.sqrt((tr.pos[1] - pos[1]) ^ 2 + (tr.pos[2] - pos[2]) ^ 2 + (tr.pos[3] - pos[3]) ^ 2)
+            if d < bestD then best, bestD = r, d end
+        end
+    end
+    return best
 end
 
 local function NewRid(nRide)
@@ -311,7 +351,9 @@ function Rides.ExportAndSend(nRide)
         if Rides.tExportToken and Rides.tExportToken[rid] then Rides.DeleteSave(Rides.tExportToken[rid]) end
         Rides.tExportToken = Rides.tExportToken or {}
         Rides.tExportToken[rid] = token
-        local tAction = { op = "ride", rid = rid, pos = tr.pos, rot = tr.rot, flat = bFlat, save = token, name = sName }
+        local tAction = { op = "ride", rid = rid, pos = tr.pos, rot = tr.rot, prev = Rides.tLastPos[nRide], flat = bFlat,
+                          save = token, name = sName }
+        Rides.tLastPos[nRide] = tr.pos
         Note((bFlat and "Fahrgeschäft" or "Bahn") .. " exportiert (" .. rid .. ")")
         Rides.Dispatch(tAction)
     end)
@@ -332,8 +374,8 @@ function Rides.SendOverNet(tAction, fnSend)
         if type(sData) ~= "string" then Note("Blaupause lesen fehlgeschlagen (Teil " .. i .. ")"); return false end
         fnSend({ op = "ridebp", rid = tAction.rid, part = i, parts = nParts, data = sData })
     end
-    fnSend({ op = "ride", rid = tAction.rid, pos = tAction.pos, rot = tAction.rot, flat = tAction.flat, parts = nParts,
-             sha = tInfo.sha256 })
+    fnSend({ op = "ride", rid = tAction.rid, pos = tAction.pos, rot = tAction.rot, prev = tAction.prev, flat = tAction.flat,
+             parts = nParts, sha = tInfo.sha256 })
     Note("gesendet: " .. tAction.rid .. " (" .. math.floor((tonumber(tInfo.size) or 0) / 1024) .. " KB, " .. nParts .. " Teil(e))")
     return true
 end
@@ -425,7 +467,7 @@ function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     if token == nil then Note("kein Blaupausen-Token für " .. tostring(rid)); return false end
     -- 1. alte Kopie abreißen
     local nOld = Rides.tCopyOf[rid]
-    if nOld ~= nil and Rides.tKnown[nOld] then
+    if nOld ~= nil and (Rides.tKnown[nOld] or RideTransform(nOld) ~= nil) then
         if not Rides.RemoveRide(nOld) then Note("alte Kopie von " .. rid .. " ließ sich nicht abreißen") end
         Rides.tRidOf[nOld] = nil
         Yield(5)
@@ -433,13 +475,17 @@ function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     Rides.tCopyOf[rid] = nil
     -- 2. Blaupause laden und einsetzen
     local tBefore = Rides.AllRides()
+    -- WIE DAS SPIEL (BlueprintPlacementMode.CreateNew): Hierarchie zuerst, dann laden. Umgekehrt landet die
+    -- Blaupause im Welt-Lade-Pfad -> "StandaloneScenerySerialisation.lua:227 ... nil" (Live-Test 2026-11-07)
+    local n = 0
+    while UndoBusy() and n < 900 do Yield(); n = n + 1 end
+    local clh = tw.editors:CreateUndoOperationsHierarchy()
     local tLoad, sErr = WaitDone(function(fnDone) api.save.RequestLoad(token, { oncomplete = fnDone }) end)
     if tLoad == nil then
         Note("Blaupause laden fehlgeschlagen: " .. tostring(sErr))
         return false
     end
-    local clh = tw.editors:CreateUndoOperationsHierarchy()
-    local n = 0
+    n = 0
     while not Call(clh, "IsLoadedBlueprintReadyForEditing") and n < 900 do Yield(); n = n + 1 end
     if n >= 900 then Note("Blaupause wurde nicht bereit"); return false end
     local mo = clh:CreateCompositeObject({})
@@ -447,6 +493,7 @@ function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     if Call(mo, "IsEmpty") then Note("Blaupause ist leer"); return false end
     pcall(mo.DecayCompositeAlignmentType, mo, mo.CompositeAlignmentType_ItemAligned)
     pcall(mo.SetCompositeOriginToOBBCentre, mo)
+    pcall(mo.AlignCompositeRotation, mo)
     local T0 = Call(mo, "GetTransform")
     Log.Write("Rides: Blaupause geladen, Composite-Position " .. Log.ToStr(T0 and Vec(Call(T0, "GetPos"))))
     pcall(mo.SetTransform, mo, MakeTransform(tTarget.pos, tTarget.rot))
@@ -458,6 +505,7 @@ function Rides.PlaceFromSave(rid, token, tTarget, sFrom)
     Rides.tKnown[nNew] = true
     Rides.tCopyOf[rid] = nNew
     Rides.tRidOf[nNew] = rid
+    Rides.tLastPos[nNew] = tTarget.pos
     -- 3. Lage prüfen und korrigieren (Blaupausen werden um ihren Mittelpunkt platziert)
     local tr = RideTransform(nNew)
     if tr then
@@ -576,6 +624,14 @@ function Rides.ApplyRemote(a, sFrom)
         end
         local pos, rot = V3(a.pos), V3(a.rot) or { 0, 0, 0 }
         if pos == nil then return end
+        -- unbekannte rid: dieselbe Bahn gibt es hier evtl. schon (aus dem Spielstand / anderer Join) -> ersetzen
+        if Rides.tCopyOf[rid] == nil then
+            local nNear = Rides.FindRideNear(V3(a.prev), rid) or Rides.FindRideNear(pos, rid)
+            if nNear ~= nil then
+                Rides.tCopyOf[rid] = nNear
+                Note("Bahn " .. rid .. " ist hier schon vorhanden (" .. tostring(nNear) .. ") -> wird ersetzt")
+            end
+        end
         local Replay = require("pc2mp.replay")
         local sName = SaveName(rid)
         Replay.Enqueue("ride place " .. rid, function()
