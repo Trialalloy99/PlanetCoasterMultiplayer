@@ -22,7 +22,7 @@ local require = global.require
 local Log = require("pc2mp.log")
 
 local TestMode = {}
-TestMode.sModVersion = "2026-11-07.7"   -- bei jedem Build hochzählen; erscheint in der Dev-UI
+TestMode.sModVersion = "2026-11-07.8"   -- bei jedem Build hochzählen; erscheint in der Dev-UI
 TestMode.sFile = "testmode.json"
 TestMode.nDefaultOffset = 25.0
 TestMode.nMaxLog = 40

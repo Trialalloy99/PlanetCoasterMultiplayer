@@ -3,13 +3,16 @@
 --/
 --/  Verifiziert im dekompilierten Lua (Stand 2026-11-07), noch NICHT im Spiel getestet:
 --/    Einstellen (Editors.Staff.StaffPlacementMode):
---/      e = staff:GenerateRandomStaff(sPrefab, x, token); staff:SetStaffMemberSuspended(e, true)
---/      ... Spieler setzt ihn ab: api.transform.SetPosition(e, v); staff:SetStaffMemberSuspended(e, false, nPool);
---/      staff:SetStaffMemberParkZone(e, park:GetParkZoneIDFromPoint(v))
+--/      e = staff:GenerateRandomStaff(sPrefab, nRequiredDLC or 0, token)   (KEIN Suspend: neuer Mitarbeiter
+--/          ist schon aufgehoben; Suspend(true) gibt es nur beim Versetzen eines vorhandenen Mitarbeiters)
+--/      jeden Frame erst nach HaveRequestsCompleted(token): api.transform.SetPosition(e, v)
+--/      Absetzen nur wenn staff:HasStaffBrain(e); dann SetPosition(e, v); SetStaffMemberSuspended(e, false, nPool);
+--/      staff:SetStaffMemberParkZone(e, park:GetParkZoneIDFromPoint(v)).  Abbruch: DestroyEntity(e).
 --/    -> wir merken uns Prefab/x aus GenerateRandomStaff; beim Absetzen (Suspended=false) senden wir
 --/       { op="staff", act="hire"|"move", prefab, x, pos, name }. Name = Kennung des Mitarbeiters auf allen Clients.
---/    WICHTIG (Absturz 2026-11-07): wie das Spiel sofort SetStaffMemberSuspended(e, true), dann warten bis
---/    HaveRequestsCompleted(token) UND staff:HasStaffBrain(e); erst dann absetzen. Pool beim Neueinstellen = nil.
+--/    ABSTURZ 2026-11-07 (Crash-Dumps 13:32/13:51, Zugriff mit ID -1): v.5/v.6 riefen direkt nach
+--/    GenerateRandomStaff SetStaffMemberSuspended(e, true) auf, bevor die Entity fertig erzeugt war. Das Spiel
+--/    tut das nie (Bytecode StaffPlacementMode.TransitionIn geprüft). Seit v.8 exakt der Spiel-Ablauf.
 --/    Testmodus: Zwilling NICHT umbenennen (Name ist ein Loc-Token), Zuordnung über Eco.tTwinStaff[Name].
 --/    Kontostand: money:GetCash(), money:ModifyCash(n, park.ExpenditureCategory_Uncategorised).
 --/      Gäste/Einnahmen laufen auf jedem Client eigenständig -> ein "Kassenwart" (Client mit der kleinsten
@@ -39,10 +42,8 @@ Eco.nFrame = 0
 Eco.tGenerated = {}          -- Staff-Entity -> { prefab, x } (aus GenerateRandomStaff)
 Eco.tSeenStaff = {}          -- Staff-Entity -> true (war schon einmal abgesetzt -> "move")
 Eco.bApplying = false
--- Einstellen per Code (GenerateRandomStaff) stürzt im Spiel ab (Crash-Dumps 13:32/13:51: Zugriff mit ID -1),
--- vermutlich weil der Platzier-Modus des Spielers gleichzeitig schon den nächsten Mitarbeiter vorbereitet.
--- Bis das geklärt ist: Einstellen wird erkannt und angezeigt, aber NICHT nachgebaut.
-Eco.bHireEnabled = false
+-- Einstellen nachbauen (v.8: Ablauf exakt wie StaffPlacementMode, siehe oben). Notschalter: false.
+Eco.bHireEnabled = true
 Eco.bTwinMode = false        -- Testmodus: Mitarbeiter-Zwillinge über tTwinStaff statt über den Namen
 Eco.tTwinStaff = {}          -- Name des Originals -> Entity des Zwillings
 
@@ -175,38 +176,46 @@ function Eco.ApplyStaff(a, sFrom)
         Note("Mitarbeiter '" .. sName .. "' versetzt (von " .. tostring(sFrom) .. ")")
         return true
     end
-    -- einstellen
+    -- einstellen: exakt der Ablauf von StaffPlacementMode (kein Suspend auf den neuen Mitarbeiter!)
+    if not coroutine.isyieldable() then
+        Note("Einstellen: nicht in einer Coroutine, abgebrochen")
+        return false
+    end
     local token = api.entity.CreateRequestCompletionToken()
     Eco.bApplying = true
-    local okG, eNew = pcall(tw.staff.GenerateRandomStaff, tw.staff, a.prefab, a.x, token)
-    if okG and eNew ~= nil then pcall(tw.staff.SetStaffMemberSuspended, tw.staff, eNew, true) end
+    local okG, eNew = pcall(tw.staff.GenerateRandomStaff, tw.staff, a.prefab, tonumber(a.x) or 0, token)
     Eco.bApplying = false
     if not okG or eNew == nil then
         Note("Einstellen fehlgeschlagen: " .. tostring(eNew))
         return false
     end
     Eco.tSeenStaff[eNew] = true
-    if not coroutine.isyieldable() then
-        Note("Einstellen: nicht in einer Coroutine, abgebrochen")
-        return false
-    end
-    -- warten bis Entity + Gehirn bereit sind (sonst nativer Absturz beim Absetzen)
+    -- 1. warten, bis die Entity wirklich erzeugt ist (vorher KEIN Zugriff auf eNew)
     local n = 0
-    while n < 600 do
-        local bReady = api.entity.HaveRequestsCompleted(token)
-        if bReady and type(tw.staff.HasStaffBrain) == "function" then
-            local okB, bBrain = pcall(tw.staff.HasStaffBrain, tw.staff, eNew)
-            bReady = okB and bBrain == true
+    while not api.entity.HaveRequestsCompleted(token) do
+        if n >= 900 then
+            Note("Einstellen: Mitarbeiter wurde nicht erzeugt (900 Frames), abgebrochen")
+            return false
         end
-        if bReady then break end
         coroutine.yield()
         n = n + 1
     end
-    if n >= 600 then
-        Note("Einstellen: Mitarbeiter wurde nicht fertig (kein Gehirn nach 600 Frames), bleibt aufgehoben")
-        return false
+    -- 2. wie der Platzier-Modus: hinstellen und auf das Gehirn warten
+    pcall(api.transform.SetPosition, eNew, v)
+    n = 0
+    while true do
+        local okB, bBrain = pcall(tw.staff.HasStaffBrain, tw.staff, eNew)
+        if okB and bBrain == true then break end
+        if n >= 900 then
+            Note("Einstellen: Mitarbeiter bekam kein Gehirn (900 Frames), wird verworfen")
+            pcall(api.entity.DestroyEntity, eNew)
+            return false
+        end
+        coroutine.yield()
+        n = n + 1
+        pcall(api.transform.SetPosition, eNew, v)
     end
-    for _ = 1, 2 do coroutine.yield() end
+    -- 3. absetzen (= _CommitStaffMember)
     api.pc2mp.bEcoApplying = true
     if Eco.bTwinMode then
         Eco.tTwinStaff[sName] = eNew

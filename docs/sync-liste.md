@@ -1,4 +1,4 @@
-# Was wird synchronisiert? (Stand 2026-11-07, Branch trialalloy/props-settings)
+# Was wird synchronisiert? (Stand 2026-11-07, Mod-Version 2026-11-07.8, Branch trialalloy/props-settings)
 
 Legende: ✔ im Spiel bestätigt · ◐ gebaut + offline getestet, Ingame-Test offen · ✘ nicht möglich (Grund)
 
@@ -42,7 +42,7 @@ Legende: ✔ im Spiel bestätigt · ◐ gebaut + offline getestet, Ingame-Test o
 | Fahrgeschäft offen/zu, Ticketpreis + -art, Wartung, Abfahrtsintervall, Lade-/Zusammenlege-Regeln | ◐ |
 | Pool offen/zu, Name | ◐ |
 | Mitarbeiter entlassen, umbenennen, Gehalt, Arbeitsort, Zone | ◐ |
-| Mitarbeiter einstellen | ✘ vorerst aus: GenerateRandomStaff per Code stürzt ab (Crash-Dumps, ID -1) |
+| Mitarbeiter einstellen | ◐ v.8 wieder an: Absturz-Ursache gefunden (wir riefen SetStaffMemberSuspended auf den noch nicht erzeugten Mitarbeiter auf, das Spiel tut das nie); jetzt exakt der Ablauf von StaffPlacementMode |
 | Kontostand (Kassenwart = kleinste Client-ID gleicht an) | ◐ |
 | Defekte von Fahrgeschäften | ◐ |
 | Schmutz/Vandalismus von Toiletten | ✘ keine Setz-API |

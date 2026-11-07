@@ -354,8 +354,8 @@ Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eOff = twE.staff:GenerateRandomStaff("Staff_Janitor", 0, tok)
 staffPos[eOff] = { 1, 0, 1 }
 twE.staff:SetStaffMemberSuspended(eOff, false, nil)
-check(#ecoOut == 0, "Einstellen ist standardmäßig abgeschaltet (Absturz im Spiel), wird nur angezeigt")
-Eco.bHireEnabled = true
+check(Eco.bHireEnabled and #ecoOut == 1 and ecoOut[1].act == "hire", "Einstellen ist wieder an (v.8, Spiel-Ablauf)")
+ecoOut = {}
 Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eNew = twE.staff:GenerateRandomStaff("Staff_Mechanic", 0, tok)
 staffPos[eNew] = { 50, 0, 50 }
@@ -363,22 +363,29 @@ twE.staff:SetStaffMemberSuspended(eNew, false, nil)
 check(#ecoOut == 1 and ecoOut[1].act == "hire" and ecoOut[1].prefab == "Staff_Mechanic" and ecoOut[1].name == names[eNew], "Einstellen erkannt (Prefab, Position, Name)")
 twE.staff:SetStaffMemberSuspended(eNew, false, nil)
 check(#ecoOut == 2 and ecoOut[2].act == "move", "erneutes Absetzen = Versetzen")
--- Ablauf wie im Spiel: sofort aufheben, auf Gehirn warten, dann absetzen
-local suspendLog, brainReady = {}, {}
+-- Ablauf wie im Spiel (StaffPlacementMode): KEIN Suspend auf den neuen Mitarbeiter, erst Entity fertig,
+-- dann hinstellen, auf das Gehirn warten, dann absetzen
+local suspendLog, brainReady, reqDone, touched = {}, {}, false, {}
 twE.staff.SetStaffMemberSuspended = function(_, e, b) suspendLog[#suspendLog + 1] = { e, b } end
-twE.staff.HasStaffBrain = function(_, e) return brainReady[e] == true end
+twE.staff.HasStaffBrain = function(_, e) touched[#touched + 1] = "brain"; return brainReady[e] == true end
+api.entity.HaveRequestsCompleted = function() return reqDone end
 Eco.Install(twE)
 Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 Eco.nOffsetX, Eco.bTwinMode = 25, true
 local co = coroutine.create(function() return Eco.ApplyStaff(ecoOut[1], "Testmodus") end)
 local okC, bHire = coroutine.resume(co)
 local eTwin = nextStaff
-check(okC and coroutine.status(co) == "suspended" and suspendLog[1][1] == eTwin and suspendLog[1][2] == true,
-    "Zwilling sofort aufgehoben, wartet auf das Gehirn")
-check(staffPos[eTwin] == nil, "ohne Gehirn noch nicht abgesetzt")
+for _ = 1, 3 do coroutine.resume(co) end
+check(okC and coroutine.status(co) == "suspended" and #suspendLog == 0 and #touched == 0 and staffPos[eTwin] == nil,
+    "Entity noch nicht erzeugt: kein Zugriff (kein Suspend, kein Gehirn, keine Position)")
+reqDone = true
+for _ = 1, 3 do coroutine.resume(co) end
+check(coroutine.status(co) == "suspended" and #suspendLog == 0 and staffPos[eTwin] and staffPos[eTwin][1] == 75,
+    "Entity fertig: hingestellt, wartet auf das Gehirn, noch nicht abgesetzt")
 brainReady[eTwin] = true
 for _ = 1, 5 do if coroutine.status(co) == "suspended" then okC, bHire = coroutine.resume(co) end end
-check(okC and bHire and staffPos[eTwin][1] == 75 and suspendLog[#suspendLog][2] == false, "mit Gehirn bei +25 abgesetzt")
+check(okC and bHire and #suspendLog == 1 and suspendLog[1][1] == eTwin and suspendLog[1][2] == false, "mit Gehirn bei +25 abgesetzt (einziger Suspend-Aufruf: false)")
+api.entity.HaveRequestsCompleted = function() return true end
 check(names[eTwin] ~= names[eNew] and Eco.tTwinStaff[names[eNew]] == eTwin, "Testmodus: Zwilling nicht umbenannt, Zuordnung über Tabelle")
 check(#ecoOut == 2, "eigenes Einstellen beim Nachspielen nicht erneut gesendet")
 Eco.nOffsetX, Eco.bTwinMode = 0, false
