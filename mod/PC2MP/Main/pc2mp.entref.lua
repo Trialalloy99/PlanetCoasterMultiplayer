@@ -23,7 +23,7 @@ local tonumber = global.tonumber
 local ER = {}
 ER.nRadius = 1.5
 -- nOffsetX / sNameSuffix / fnStaffMap liegen in api.pc2mp.tERCfg, damit alle Modul-Kontexte dieselben Werte sehen
-local tShared = { nOffsetX = true, sNameSuffix = true, fnStaffMap = true }
+local tShared = { nOffsetX = true, sNameSuffix = true, fnStaffMap = true, bStaffMapStrict = true }
 local function Cfg()
     api.pc2mp = api.pc2mp or {}
     api.pc2mp.tERCfg = api.pc2mp.tERCfg or {}
@@ -119,6 +119,15 @@ function ER.Ref(sKind, nEntity)
         end
         return nil
     end
+    if sKind == "part" then
+        -- Szenerie-Teil (Lautsprecher, Tür, ...): netId aus dem Szenerie-Sync, sonst Position
+        local nPart = Call(TW().placement, "EntityIDToPlacementID", nEntity)
+        local S = api.pc2mp and api.pc2mp.Sync
+        local H = nPart ~= nil and S and S.tByPart and S.tByPart[nPart] or nil
+        local p = ER.Pos(nEntity)
+        if H and H.netId then return { netId = H.netId, pos = p } end
+        return p and { pos = p, part = true } or nil
+    end
     local p = ER.Pos(nEntity)
     return p and { pos = p } or nil
 end
@@ -128,7 +137,11 @@ function ER.Resolve(sKind, tRef)
     if type(tRef) ~= "table" then return nil end
     if sKind == "staff" then
         if type(tRef.name) ~= "string" then return nil end
-        if ER.fnStaffMap then return ER.fnStaffMap(tRef.name) end  -- Testmodus: Zwillings-Mitarbeiter
+        -- zugeordnete Mitarbeiter (Testmodus: Zwillinge; Multiplayer: vom Mitspieler eingestellte)
+        if ER.fnStaffMap then
+            local e = ER.fnStaffMap(tRef.name)
+            if e ~= nil or ER.bStaffMapStrict then return e end
+        end
         local sName = tRef.name .. (ER.sNameSuffix or "")
         for _, e in ipairs(ER.Staff()) do
             if Call(TW().staff, "GetStaffUIName", e) == sName then return e end
@@ -141,6 +154,21 @@ function ER.Resolve(sKind, tRef)
         return fac and Call(TW().facilities, "GetShopInventoryEntityID", fac) or nil
     end
     if sKind == "place" then return Nearest(ER.Places(), tRef.pos) end
+    if sKind == "part" then
+        local S = api.pc2mp and api.pc2mp.Sync
+        local H = tRef.netId and S and S.tByNet and S.tByNet[tRef.netId] or nil
+        if H and H.partID then return Call(TW().placement, "PlacementIDToEntityID", H.partID) end
+        -- Teil aus dem Spielstand (keine netId): unter den Teilen suchen, die der Szenerie-Sync kennt
+        if S and S.tByPart then
+            local tList = {}
+            for nPart in pairs(S.tByPart) do
+                local e = Call(TW().placement, "PlacementIDToEntityID", nPart)
+                if e then tList[#tList + 1] = e end
+            end
+            return Nearest(tList, tRef.pos)
+        end
+        return nil
+    end
     if sKind == "ride" then return Nearest(ER.Rides(), tRef.pos) end
     if sKind == "pool" then return Nearest(Values(Call(TW().pools, "GetAllPools")), tRef.pos) end
     if sKind == "station" then return Nearest(ER.Stations(), tRef.pos) end

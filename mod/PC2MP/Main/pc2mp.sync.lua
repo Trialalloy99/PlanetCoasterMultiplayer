@@ -221,6 +221,12 @@ local function OnRemoteAction(msg)
         return
     end
     -- Defekt eines Fahrgeschäfts (pc2mp.breakdowns), Station über die Position
+    -- Vandalismus vom Mitspieler (pc2mp.randomevents)
+    if a.op == "vandal" then
+        local okR, RE = pcall(require, "pc2mp.randomevents")
+        if okR then RE.ApplyRemote(a, tostring(msg.clientId)) end
+        return
+    end
     if a.op == "breakdown" then
         local okB, BD = pcall(require, "pc2mp.breakdowns")
         if okB then BD.ApplyRemote(a, tostring(msg.clientId)) end
@@ -315,6 +321,13 @@ function Sync.UpdateRoles()
     if okE then pcall(Eco.UpdateMaster, Sync.sMyId, Sync.tOnline) end
     local okC, Clock = pcall(require, "pc2mp.clock")
     if okC and okE then Clock.bMaster, Clock.bHasPeers = Eco.bCashMaster, Eco.bHasPeers end
+    -- Zufallsereignisse auf alle Spieler aufteilen (pc2mp.randomevents)
+    local okR, RE = pcall(require, "pc2mp.randomevents")
+    if okR then
+        local n = 1
+        for _ in pairs(Sync.tOnline or {}) do n = n + 1 end
+        pcall(RE.SetPlayers, n)
+    end
 end
 
 ---------------------------------------------------------------------
@@ -427,8 +440,17 @@ function Sync.Start()
         end }
     end
     local okER, ER = pcall(require, "pc2mp.entref")
-    if okER then ER.nOffsetX, ER.sNameSuffix, ER.fnStaffMap = 0, nil, nil end
+    if okER then
+        ER.nOffsetX, ER.sNameSuffix = 0, nil
+        -- vom Mitspieler eingestellte Mitarbeiter: Zuordnung Original-Name -> eigene Entity (kein Umbenennen)
+        ER.fnStaffMap = function(sName) local okE2, E2 = pcall(require, "pc2mp.economy"); return okE2 and E2.tTwinStaff[sName] or nil end
+        ER.bStaffMapStrict = false
+    end
     if okEc then Eco.bTwinMode = false end
+    local okRE, RE = pcall(require, "pc2mp.randomevents")
+    if okRE then
+        RE.tListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
+    end
     local okBD, BD = pcall(require, "pc2mp.breakdowns")
     if okBD then
         BD.nOffsetX = 0

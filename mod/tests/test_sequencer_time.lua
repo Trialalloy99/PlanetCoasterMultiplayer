@@ -354,10 +354,7 @@ Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eOff = twE.staff:GenerateRandomStaff("Staff_Janitor", 0, tok)
 staffPos[eOff] = { 1, 0, 1 }
 twE.staff:SetStaffMemberSuspended(eOff, false, nil)
-check(not Eco.bHireEnabled and #ecoOut == 0, "Einstellen abgeschaltet (Absturz beim Empfänger 2026-11-07)")
-local okH = Eco.ApplyStaff({ act = "hire", prefab = "Vendor", x = 0, pos = { 1, 0, 1 }, name = "Neu" }, "Test")
-check(okH == false, "Empfänger baut Einstellen nicht nach (Absturz-Schutz)")
-Eco.bHireEnabled = true -- folgende Prüfungen: Erkennung wie bisher
+check(Eco.bHireEnabled and #ecoOut == 1 and ecoOut[1].act == "hire", "Einstellen wieder an (ohne Umbenennen beim Empfänger)")
 ecoOut = {}
 Eco.tListeners = { function(x) ecoOut[#ecoOut + 1] = x end }
 local eNew = twE.staff:GenerateRandomStaff("Staff_Mechanic", 0, tok)
@@ -392,6 +389,24 @@ api.entity.HaveRequestsCompleted = function() return true end
 check(names[eTwin] ~= names[eNew] and Eco.tTwinStaff[names[eNew]] == eTwin, "Testmodus: Zwilling nicht umbenannt, Zuordnung über Tabelle")
 check(#ecoOut == 2, "eigenes Einstellen beim Nachspielen nicht erneut gesendet")
 Eco.nOffsetX, Eco.bTwinMode = 0, false
+-- Multiplayer: vom Mitspieler eingestellt -> an derselben Stelle, NICHT umbenennen (Loc-Token crasht), zuordnen
+local ERm = require("pc2mp.entref")
+ERm.fnStaffMap = function(n) return Eco.tTwinStaff[n] end
+ERm.bStaffMapStrict = false
+twE.staff.HasStaffBrain = function() return true end
+local renamed = 0
+local fnRen = twE.staff.SetStaffUIName
+twE.staff.SetStaffUIName = function(...) renamed = renamed + 1; return fnRen(...) end
+local sLoc = "[GuestName_Default:Forename=[GuestName_Forename_Female_01029]]"
+local coM = coroutine.create(function() return Eco.ApplyStaff({ act = "hire", prefab = "Vendor", x = 0, pos = { 7, 0, 9 }, name = sLoc }, "c2") end)
+local okM, bM
+for _ = 1, 10 do if coroutine.status(coM) == "suspended" then okM, bM = coroutine.resume(coM) end end
+local eMP = Eco.tTwinStaff[sLoc]
+check(okM and bM and eMP ~= nil and renamed == 0 and staffPos[eMP][1] == 7 and staffPos[eMP][3] == 9,
+    "Multiplayer: Mitarbeiter an derselben Stelle eingestellt, nicht umbenannt")
+check(ERm.Resolve("staff", { name = sLoc }) == eMP, "spätere Aktionen (Versetzen, Gehalt) finden ihn über die Zuordnung")
+twE.staff.SetStaffUIName = fnRen
+ERm.fnStaffMap = nil
 Eco.UpdateMaster("c3", { c7 = true })
 check(Eco.bCashMaster, "kleinste Client-ID ist Kassenwart")
 for _ = 1, Eco.nCashEvery do Eco.Tick() end

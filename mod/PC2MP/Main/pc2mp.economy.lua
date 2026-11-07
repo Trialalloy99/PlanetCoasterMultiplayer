@@ -43,12 +43,14 @@ Eco.tGenerated = {}          -- Staff-Entity -> { prefab, x } (aus GenerateRando
 Eco.tSeenStaff = {}          -- Staff-Entity -> true (war schon einmal abgesetzt -> "move")
 Eco.bApplying = false
 -- Einstellen nachbauen (v.8: Ablauf exakt wie StaffPlacementMode, siehe oben). Notschalter: false.
--- ABSTURZ 2026-11-07 15:04 (Maxi, Empfänger): Finn stellt einen "Vendor" ein -> Maxis Spiel stürzt beim Nachbauen
--- nativ ab (ACCESS_VIOLATION exe+0x72cfbc, direkt nach "Replay: starte staff hire"). Bis das im Spiel geklärt ist:
--- Einstellen wird weder gesendet noch beim Empfänger nachgebaut (Empfänger-Sperre schützt auch vor alten Versionen).
--- Hinweis: der dekompilierte StaffPlacementMode.TransitionIn ruft direkt nach GenerateRandomStaff
--- SetStaffMemberSuspended(e, true) auf; Vendor bekommt zusätzlich einen Platzierungsring.
-Eco.bHireEnabled = false
+-- ABSTURZ 2026-11-07 15:04 (Maxi, Empfänger, ACCESS_VIOLATION exe+0x72cfbc): Ursache sehr wahrscheinlich
+-- SetStaffUIName(eNew, <Loc-Token-Name>) beim Empfänger (Namen sind Tokens wie "[GuestName_Default:Forename=..]";
+-- dasselbe Umbenennen crashte schon im Testmodus, e579065). Bytecode StaffPlacementMode.TransitionIn geprüft:
+-- neuer Mitarbeiter = GenerateRandomStaff(prefab, nRequiredDLC or 0, token) OHNE Suspend (Suspend nur beim
+-- Versetzen eines vorhandenen). Seit agent:maxi-Fix: KEIN Umbenennen mehr, Zuordnung Original-Name -> eigener
+-- Mitarbeiter über Eco.tTwinStaff (wie im Testmodus), ER.Resolve fällt für Mitarbeiter aus dem Spielstand auf
+-- den Namen zurück (dort sind die Namen auf allen Clients gleich).
+Eco.bHireEnabled = true
 Eco.bTwinMode = false        -- Testmodus: Mitarbeiter-Zwillinge über tTwinStaff statt über den Namen
 Eco.tTwinStaff = {}          -- Name des Originals -> Entity des Zwillings
 
@@ -226,11 +228,8 @@ function Eco.ApplyStaff(a, sFrom)
     end
     -- 3. absetzen (= _CommitStaffMember)
     api.pc2mp.bEcoApplying = true
-    if Eco.bTwinMode then
-        Eco.tTwinStaff[sName] = eNew
-    else
-        pcall(tw.staff.SetStaffUIName, tw.staff, eNew, sName)
-    end
+    -- NICHT umbenennen (Loc-Token-Namen crashen das Spiel), nur zuordnen
+    Eco.tTwinStaff[sName] = eNew
     Place(eNew, v, true)
     api.pc2mp.bEcoApplying = false
     Note("Mitarbeiter '" .. sName .. "' eingestellt (von " .. tostring(sFrom) .. ")")

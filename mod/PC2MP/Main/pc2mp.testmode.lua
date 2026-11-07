@@ -135,6 +135,7 @@ function TestMode.ApplyInPark(bWanted)
         ER.nOffsetX, ER.sNameSuffix = nOff, nil
         Eco.nOffsetX, Eco.sNameSuffix, Eco.bTwinMode = nOff, nil, true
         ER.fnStaffMap = function(sName) return Eco.tTwinStaff[sName] end
+        ER.bStaffMapStrict = true
         Eco.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
         Eco.bCashMaster, Eco.bHasPeers, Eco.nCashEvery = true, true, 900
         local Replay = require("pc2mp.replay")

@@ -101,6 +101,21 @@ GameState.tTargets = {
     { k = "staff.ScheduleAssignSpecificLocation", api = "staff", m = "ScheduleAssignSpecificLocation",
       ents = { "staff", nil, "place" }, slot = 2, event = true },
     { k = "staff.SetStaffMemberParkZone", api = "staff", m = "SetStaffMemberParkZone", ents = { "staff" }, slot = 1 },
+    -- Mitarbeiter-Zeitpläne + Posten (agent:maxi, Signaturen aus dem dekompilierten Lua 2026-11-07)
+    --   ScheduleUnassignSpecificLocation(staff, nBlock, nStaffType, nWorkType)      (Lifeguard/Security/RideAttendant-Popups)
+    --   ScheduleChangeWorkTaskCategory(staff, nBlock, nWorkTypeCategory)            (Mechaniker: Forschung/Wartung)
+    --   ScheduleToggleBlockActive(staff, nBlock, bActive)                            (Schicht-Blöcke)
+    --   ScheduleSetParkZone(staff, nBlock[, nParkZone])                              (Zone pro Block)
+    --   SetSecurityAssignedPost(staff[, post]) / SetLifeguardAssignedPost(staff[, post, true])
+    { k = "staff.ScheduleUnassignSpecificLocation", api = "staff", m = "ScheduleUnassignSpecificLocation",
+      ents = { "staff" }, slot = 2, event = true },
+    { k = "staff.ScheduleChangeWorkTaskCategory", api = "staff", m = "ScheduleChangeWorkTaskCategory", ents = { "staff" }, slot = 2 },
+    { k = "staff.ScheduleToggleBlockActive", api = "staff", m = "ScheduleToggleBlockActive", ents = { "staff" }, slot = 2 },
+    { k = "staff.ScheduleSetParkZone", api = "staff", m = "ScheduleSetParkZone", ents = { "staff" }, slot = 2 },
+    { k = "staff.SetSecurityAssignedPost", api = "staff", m = "SetSecurityAssignedPost", ents = { "staff", "place" }, slot = 1, event = true },
+    { k = "staff.SetLifeguardAssignedPost", api = "staff", m = "SetLifeguardAssignedPost", ents = { "staff", "place" }, slot = 1, event = true },
+    -- Musik an Lautsprechern / Paraden: gameaudio:SetCustomMusicOverride(nEntity, sTrack[, nTrain])
+    { k = "audio.SetCustomMusicOverride", api = "gameaudio", m = "SetCustomMusicOverride", ents = { "part" }, slot = 1 },
     { k = "time.Speed", hud = true, m = "ChangeSimulationSpeedSettings" },
     -- Die HUD-Schalter für Wetter/Sonne/Uhrzeit sind als Funktionsreferenz registriert (AddListener_...(self.X, self))
     -- -> Haken auf die APIs darunter (Spiel-Log 2026-11-07: Wetter wurde über den HUD-Haken nie erkannt)
@@ -214,7 +229,7 @@ function GameState.OnCall(sKey, tArgs, nArgs, tRefs)
     for i = 1, nArgs do tA[i] = Plain(tArgs[i]) end
     if tgt.ents then
         for i = 1, 4 do
-            if tgt.ents[i] ~= nil then
+            if tgt.ents[i] ~= nil and i <= nArgs and tArgs[i] ~= nil then  -- nicht übergeben = optional (z. B. Posten abziehen)
                 local r = tRefs and tRefs[i]
                 if not r then
                     if GameState.IsLive() then Note(sKey .. ": Ziel nicht beschreibbar (Argument " .. i .. "), nicht gesendet") end
@@ -429,7 +444,7 @@ function GameState.ApplyRemote(a, sFrom)
         local ER = EntRef()
         for i = 1, 4 do
             local sKind = tgt.ents[i]
-            if sKind ~= nil then
+            if sKind ~= nil and tArgs[i] ~= nil then
                 local okR, e = pcall(ER.Resolve, sKind, type(tArgs[i]) == "table" and ArgList(tArgs[i]) and tArgs[i] or nil)
                 if not okR or e == nil then
                     Note(tgt.k .. " von " .. tostring(sFrom) .. ": Ziel (" .. sKind .. ") hier nicht gefunden")

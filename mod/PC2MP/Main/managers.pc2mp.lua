@@ -21,6 +21,7 @@ local WorldEdit = require("pc2mp.worldedit")
 local Sync = require("pc2mp.sync")
 local UndoHook = require("pc2mp.undohook")
 local Menu = require("pc2mp.menu")
+local RandomEvents = require("pc2mp.randomevents")
 local GameState = require("pc2mp.gamestate")
 local TestMode = require("pc2mp.testmode")
 local Breakdowns = require("pc2mp.breakdowns")
@@ -94,6 +95,11 @@ function PC2MPManager.Activate(self)
     local okGS, errGS = pcall(GameState.Install, tWorldAPIs, tEnv)
     if not okGS then Log.Write("GameState.Install Fehler: " .. tostring(errGS)) end
 
+    RandomEvents.tListeners = {}
+    RandomEvents.nPlayers = 1
+    local okRE, errRE = pcall(RandomEvents.Install, tWorldAPIs, tEnv)
+    if not okRE then Log.Write("RandomEvents.Install Fehler: " .. tostring(errRE)) end
+
     Sync.fnTestModeOn = TestMode.IsOn
     local okS, bSync = pcall(Sync.Start)
     if not okS then Log.Write("Sync.Start Fehler: " .. tostring(bSync)) end
@@ -137,6 +143,8 @@ function PC2MPManager.Advance(self, _nDeltaTime)
     if not ok then Log.Write("Rides.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Economy.Tick)
     if not ok then Log.Write("Economy.Tick Fehler: " .. tostring(err)) end
+    ok, err = pcall(RandomEvents.Tick)
+    if not ok then Log.Write("RandomEvents.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Breakdowns.Tick)
     if not ok then Log.Write("Breakdowns.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(GameState.Tick)
