@@ -65,6 +65,8 @@ function PC2MPManager.Activate(self)
     if not okS then Log.Write("Sync.Start Fehler: " .. tostring(bSync)) end
     if okS and bSync then
         pcall(UndoHook.EnsurePatched)
+    elseif Sync.tConfig ~= nil then
+        Log.Write("Offline (nicht über die Dev-UI gejoint)")
     else
         Events.AddListener(Mirror.OnAction)
         WorldEdit.bMirror = true

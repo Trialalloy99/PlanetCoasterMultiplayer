@@ -250,7 +250,7 @@ end
 ---------------------------------------------------------------------
 function Sync.UpdateHello()
     local c = Sync.tConfig or {}
-    Net.SetHello({ t = "hello", v = 1, name = c.name or "Spieler", park = c.park or "default",
+    Net.SetHello({ t = "hello", v = 1, name = c.name or "Spieler", park = Sync.sRoom or "default",
                    lastSeq = api.pc2mp.nLastSeq })
 end
 
@@ -266,6 +266,15 @@ function Sync.Start()
         return false
     end
     Sync.tConfig = tCfg
+    -- Room (= "Server" in der Dev-UI): beim Join über die UI gesetzt (pc2mp.menu), sonst Config-Fallback
+    local tJoin = api.pc2mp and api.pc2mp.tJoin
+    if tJoin ~= nil then api.pc2mp.tJoin = nil end
+    Sync.sRoom = (tJoin and tJoin.room) or tCfg.park
+    Sync.nJoinLastSeq = tJoin and global.math.tointeger(global.tonumber(tJoin.lastSeq) or 0) or nil
+    if Sync.sRoom == nil or Sync.sRoom == "" then
+        Log.Write("Sync: Welt nicht über die Dev-UI gejoint -> offline")
+        return false
+    end
     Log.Write("Sync: " .. Net.Info())
     -- Neuer Park/Environment: Zuordnungen kommen (falls vorhanden) aus dem Spielstand (pc2mp.persist),
     -- sonst gilt: alles ab Seq 0 vom Server holen (frischer Start-Spielstand).
@@ -286,7 +295,7 @@ function Sync.Start()
     end
     Sync.bActive = true
     api.pc2mp.Sync = Sync -- für den Undo-Hook (läuft in einem anderen Modul-Kontext)
-    Log.Write("Sync: Multiplayer aktiv, Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
+    Log.Write("Sync: Multiplayer aktiv, Room " .. tostring(Sync.sRoom) .. ", Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
         .. ", Instanz " .. Sync.sInstance)
     return true
 end
@@ -341,6 +350,8 @@ function Sync.Tick()
         end
         if bResolved and Sync.nWaitFrames >= 30 then
             Sync.bWaitConnect = false
+            -- Join über die UI: der Server weiß, bis zu welcher Seq der Spielstand reicht
+            if Sync.nJoinLastSeq ~= nil then api.pc2mp.nLastSeq = Sync.nJoinLastSeq end
             Sync.UpdateHello()
             -- Die DLL hält die Verbindung über Park-Wechsel hinweg; neu verbinden, damit hello (lastSeq) neu geht
             Net.Disconnect()

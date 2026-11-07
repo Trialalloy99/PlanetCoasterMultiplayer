@@ -96,6 +96,7 @@ function Menu.RefreshJob()
         tTokens[d.id] = tok
     end
     Menu.tSaves, Menu.tTokens = tList, tTokens
+    Menu.nRefreshes = (Menu.nRefreshes or 0) + 1
     Log.Write("Menu: " .. #tList .. " Welten gefunden" .. (#tList > 0 and (" (neueste: " .. tList[1].name .. ")") or ""))
     Menu.bDirty = true
 end
@@ -140,6 +141,12 @@ function Menu.HandleCmd(t)
         Menu.StartRefresh(); ok, sMsg = true, "aktualisiere"
     elseif t.cmd == "load" then
         ok, sMsg = Menu.Load(t.save)
+    elseif t.cmd == "join" then
+        -- Welt eines Servers öffnen: Sync (im Park) liest Room + Spielstand-Seq aus api.pc2mp.tJoin
+        api.pc2mp = api.pc2mp or {}
+        api.pc2mp.tJoin = { room = t.room, lastSeq = t.lastSeq }
+        ok, sMsg = Menu.Load(t.save)
+        if not ok then api.pc2mp.tJoin = nil end
     end
     Log.Write("Menu: Befehl " .. nId .. " " .. tostring(t.cmd) .. " " .. tostring(t.save) .. " -> " .. tostring(ok) .. " " .. tostring(sMsg))
     Menu.tCmdResult = { id = nId, ok = ok, msg = sMsg }
@@ -164,6 +171,8 @@ function Menu.WriteState()
         park = Menu.CurrentPark(),
         source = Menu.sSource,
         saves = Menu.tSaves,
+        refreshes = Menu.nRefreshes or 0,
+        room = api.pc2mp and api.pc2mp.Sync and api.pc2mp.Sync.sRoom or nil,
         cmd = Menu.tCmdResult,
     }
     -- frame ändert sich ständig: als Lebenszeichen nur alle nPollEvery Frames schreiben (= hier)

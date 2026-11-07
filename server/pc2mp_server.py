@@ -378,6 +378,9 @@ class Server:
             c.upload_chunks.append(chunk)
         elif t == "saveEnd" and c.upload is not None:
             await self.on_save_end(c)
+        elif t in ("saveChunk", "saveEnd"):
+            pass  # Rest eines abgelehnten Uploads
+
         elif t == "saveRequest":
             await self.on_save_request(c, msg)
         elif t == "joinPrepare":

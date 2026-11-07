@@ -1,0 +1,14 @@
+{
+  "name": "pc2mp-devui",
+  "version": "0.1.0",
+  "description": "PC2MP Entwickler-UI: Welten, Servers, Join",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/test_logic.js"
+  },
+  "devDependencies": {
+    "electron": "33.2.1"
+  }
+}

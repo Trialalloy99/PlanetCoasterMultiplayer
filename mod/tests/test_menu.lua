@@ -60,4 +60,9 @@ check(Menu.sSource == "plm-hook", "anderer Einstieg übernimmt, wenn der erste v
 api.pc2mp = { bInPark = true }
 tick(30)
 check(S("ui_state.json").mode == "park", "Modus park erkannt")
+loaded = nil
+files["ui_cmd.json"] = J({ id = 8, cmd = "join", save = "B2", room = "Freizeitpark", lastSeq = 33 })
+tick(30)
+check(loaded == "TOK_B" and api.pc2mp.tJoin.room == "Freizeitpark" and api.pc2mp.tJoin.lastSeq == 33, "join merkt Room + Seq und lädt")
+check(S("ui_state.json").refreshes >= 1, "Zähler fürs Neueinlesen im Status")
 print("\nALLE MENU-TESTS OK")
