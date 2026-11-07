@@ -57,6 +57,10 @@ local function SendAction(tAction)
     tAction.origin = Sync.sInstance
     local ok = Net.Send({ t = "action", cseq = Sync.nCseq, action = tAction })
     if not ok then Log.Write("Sync: Senden fehlgeschlagen (" .. tostring(Net.LastError()) .. ")") end
+    if tAction.op == "upsert" or tAction.op == "remove" then
+        Log.Write("Sync: gesendet " .. tostring(tAction.op) .. " netId=" .. tostring(tAction.netId) .. " localId="
+            .. tostring(tAction.localId) .. " cseq=" .. Sync.nCseq .. " ok=" .. tostring(ok) .. " net=" .. tostring((Net.Status())))
+    end
 end
 
 -- Aktuellen Zustand von H an alle senden
@@ -92,7 +96,7 @@ local function PushUndo(H, before, after)
 end
 
 function Sync.OnLocalAction(tAction)
-    if not Sync.bActive then return end
+    if not Sync.bActive then Log.Write("Sync: lokale Aktion ignoriert (Sync nicht aktiv)") return end
     local nPart = tAction.partID
     local H = Sync.tByPart[nPart]
     if tAction.op == "upsert" then
@@ -103,7 +107,10 @@ function Sync.OnLocalAction(tAction)
         local before = H.state
         local tNew = { resource = tAction.resource, pos = tAction.pos, rot = tAction.rot, scale = tAction.scale,
                        props = tAction.props }
-        if Props.StateEqual(before, tNew) then return end -- doppelte Meldung (z. B. Commit + Farb-Message)
+        if Props.StateEqual(before, tNew) then -- doppelte Meldung (z. B. Commit + Farb-Message)
+            Log.Write("Sync: Teil " .. tostring(nPart) .. " unverändert, nicht gesendet")
+            return
+        end
         H.state = tNew
         PushUndo(H, before, H.state)
         Sync.SendState(H)
@@ -264,6 +271,11 @@ function Sync.OnMessage(msg, sRaw)
     if type(msg) ~= "table" then return end
     local t = msg.t
     if t == "action" then
+        local act = msg.action or {}
+        if act.op == "upsert" or act.op == "remove" then
+            Log.Write("Sync: empfangen seq " .. tostring(msg.seq) .. " " .. tostring(act.op) .. " " .. tostring(act.netId)
+                .. " von " .. tostring(msg.clientId) .. (act.origin == Sync.sInstance and " (eigenes Echo)" or ""))
+        end
         OnRemoteAction(msg)
     elseif t == "ids" then
         OnIds(msg)

@@ -78,7 +78,8 @@ function listWorldFiles(dir) {
 }
 
 function safeName(s) {
-  return String(s).replace(/[^A-Za-z0-9 _-]/g, '_').trim().slice(0, 40) || 'server';
+  // nur Zeichen, die PC2MPNative.dll in Dateinamen erlaubt (files_valid_name: [A-Za-z0-9_.-])
+  return String(s).trim().replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'server';
 }
 
 module.exports = { findGameDir, modDir, dataDir, readConfig, savesDir, listWorldFiles, worldNameFromFile, safeName, DOWNLOAD_PREFIX };

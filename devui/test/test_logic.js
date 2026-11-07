@@ -72,7 +72,8 @@ async function main() {
     ok('Testmodus-Status aus ui_state.json');
 
     assert.strictEqual(P.worldNameFromFile('test2-59D70CED.park2'), 'test2');
-    assert.strictEqual(P.safeName('Maxi & Finn!'), 'Maxi _ Finn_');
+    assert.strictEqual(P.safeName('Maxi & Finn!'), 'Maxi___Finn_');
+    assert.strictEqual(P.safeName('coconut paradise'), 'coconut_paradise');
     ok('Hilfsfunktionen');
     console.log('\nALLE UI-TESTS OK');
   } finally {
