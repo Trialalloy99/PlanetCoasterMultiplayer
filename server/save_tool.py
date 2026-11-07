@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Spielstand (.park2) über den PC2MP-Server austauschen, damit alle mit derselben Startwelt beginnen.
 
-    python server/save_tool.py upload   --host <ip> [--port 7790] <datei.park2>
-    python server/save_tool.py download --host <ip> [--port 7790] [--out <ordner>]
+    python server/save_tool.py upload   --host <ip> --room <Server> [--create] <datei.park2>
+    python server/save_tool.py download --host <ip> --room <Server> [--out <ordner>]
+    python server/save_tool.py list     --host <ip>
     python server/save_tool.py savesdir          # zeigt den lokalen Saves-Ordner von PC2
 
 Ohne --out wird in den Saves-Ordner von Planet Coaster 2 gespeichert
@@ -39,8 +40,8 @@ async def connect(host, port):
     async def recv():
         return json.loads(await asyncio.wait_for(r.readline(), 60))
 
-    send({"t": "hello", "v": 1, "name": "save_tool", "park": "-", "lastSeq": 2 ** 62})
-    while (m := await recv())["t"] != "caughtUp":
+    send({"t": "hello", "v": 1, "name": "save_tool", "role": "ui"})
+    while (m := await recv())["t"] != "rooms":
         pass
     return r, w, send, recv
 
@@ -49,7 +50,8 @@ async def upload(a):
     data = Path(a.file).read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     r, w, send, recv = await connect(a.host, a.port)
-    send({"t": "saveUpload", "seq": 0, "name": Path(a.file).name, "size": len(data), "sha256": sha})
+    send({"t": "saveUpload", "room": a.room, "create": a.create, "name": Path(a.file).name, "size": len(data),
+          "sha256": sha})
     for i in range(0, len(data), CHUNK):
         send({"t": "saveChunk", "i": i // CHUNK, "data": base64.b64encode(data[i:i + CHUNK]).decode()})
         await w.drain()
@@ -66,7 +68,7 @@ async def download(a):
     if out is None:
         sys.exit("Saves-Ordner nicht gefunden, bitte --out angeben")
     r, w, send, recv = await connect(a.host, a.port)
-    send({"t": "saveRequest"})
+    send({"t": "saveRequest", "room": a.room})
     await w.drain()
     m = await recv()
     if m["t"] != "saveBegin":
@@ -83,19 +85,33 @@ async def download(a):
     w.close()
 
 
+async def list_rooms(a):
+    r, w, send, recv = await connect(a.host, a.port)
+    send({"t": "listRooms"})
+    for room in (await recv())["rooms"]:
+        print(f"{room['name']!r}: online={room['online']} seq={room['serverSeq']} saveSeq={room['saveSeq']} "
+              f"offen={room['pending']}")
+    w.close()
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["upload", "download", "savesdir"])
+    p.add_argument("cmd", choices=["upload", "download", "list", "savesdir"])
     p.add_argument("file", nargs="?")
     p.add_argument("--host")
     p.add_argument("--port", type=int, default=7790)
     p.add_argument("--out")
+    p.add_argument("--room", default="multiplayer test")
+    p.add_argument("--create", action="store_true", help="neuen Server anlegen")
     a = p.parse_args()
     if a.cmd == "savesdir":
         print(saves_dir())
         return
     if not a.host:
         sys.exit("--host fehlt")
+    if a.cmd == "list":
+        asyncio.run(list_rooms(a))
+        return
     if a.cmd == "upload":
         if not a.file:
             sys.exit("Datei fehlt")

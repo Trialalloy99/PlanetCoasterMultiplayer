@@ -45,12 +45,27 @@ LuaDB.tManagers = {
     ["Environments.CPTEnvironment"] = {
         ["managers.pc2mp"] = {},
     },
+    -- spielweit (Hauptmenü + Park): Dev-UI-Steuerung (#21)
+    ["Game.GameEnvironment"] = {
+        ["managers.pc2mpgame"] = {},
+    },
 }
 
 -- ACSE: Hook auf das Spieler-Undo (wird beim ersten require des Moduls angewendet)
 function LuaDB.AddLuaHooks(_fnAdd)
     _fnAdd("Editors.Shared.BaseEditMode", function(tModule)
         require("pc2mp.undohook").AcseHook(tModule)
+    end)
+    -- Fallback für die Dev-UI, falls der Manager in Game.GameEnvironment nicht greift (#21)
+    _fnAdd("Managers.ParkLoadSaveManager", function(tModule)
+        require("pc2mp.menu").AcseHookPlm(tModule)
+    end)
+    -- Hauptmenü: diese Module laden erst mit der Menü-Welt, also nach ACSE (#21)
+    _fnAdd("StartScreen.Shared.StartScreenStateHelper", function(tModule)
+        require("pc2mp.menu").AcseHookAdvance(tModule, "menu-statehelper")
+    end)
+    _fnAdd("StartScreen.Globe.GlobeMode", function(tModule)
+        require("pc2mp.menu").AcseHookAdvance(tModule, "menu-globemode")
     end)
 end
 

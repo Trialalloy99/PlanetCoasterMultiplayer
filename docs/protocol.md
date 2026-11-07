@@ -73,3 +73,24 @@ S→C {"t":"error","code":"...","msg":"..."}
 - `origin` = zufällige Kennung der Spielsitzung; Clients ignorieren Aktionen mit eigenem origin (auch im Catch-up).
 - `rot` = Rotation als „packed axis angle“ (`Quaternion:ToPackedAxisAngle()` / `Quaternion.FromPackedAxisAngle`).
 - Undo/Redo werden NICHT als eigene Ops gesendet, sondern als der resultierende upsert/remove.
+
+## Rooms / Dev-UI (seit #21)
+Der Server hält mehrere **Rooms** (= Welten, in der UI „Servers“), je Ordner `data/<name>/` mit `actions.jsonl`, `meta.json`,
+`save.park2` + `save.json`, `backups/` (letzte 5 Spielstände). Neue Rooms vergeben netIds mit Präfix (`r3f9a1cn1`).
+- **Spiel-Client:** `hello.park` = Room-Name (wird angelegt, falls neu). Die Mod setzt ihn beim Join aus der UI.
+- **UI-Client:** `{"t":"hello","v":1,"name":"Maxi","role":"ui"}` → `welcome{role:"ui"}` + `rooms`.
+```
+C→S {"t":"listRooms"}       S→C {"t":"rooms","rooms":[{"name","online":[..],"serverSeq","hasSave","saveSeq","saveTime","saveSize","pending","saving"}]}
+                            (wird an alle UIs bei jeder Änderung geschickt)
+UI→S {"t":"saveUpload","room":"X","create":true,...} + saveChunk* + saveEnd   → S→UI {"t":"saveStored","seq":0,"room":"X"}
+UI→S {"t":"saveRequest","room":"X"}                                            → saveBegin{room,...}, saveChunk*, saveEnd
+UI→S {"t":"joinPrepare","room":"X"}
+   niemand online:  S→UI {"t":"saveReady","room":"X","hasSave":true,"saveSeq":N,"fresh":false,"pending":K}
+   jemand online:   S→UI {"t":"waitingForSave","room":"X","saver":"Finn"}
+                    S→Spieler {"t":"quickSave","seq":N,"by":"Maxi"}  → Spieler lädt hoch (saveUpload/saveChunk/saveEnd)
+                    oder {"t":"quickSaveFailed","msg":..}; Timeout 90 s → letzter Spielstand
+                    S→UI saveReady{fresh:true}
+```
+- Während eines Quick-Saves hält der Server neue `action`s zurück und spielt sie danach mit seq > saveSeq ein.
+- Spieler laden nach **jedem** Speichern automatisch hoch (`pc2mp.saveupload`): `saveUpload{seq = lastSeq des Spiels}`;
+  der Server nimmt `min(seq, serverSeq)` bzw. beim Quick-Save die seq zum Zeitpunkt der Anfrage.

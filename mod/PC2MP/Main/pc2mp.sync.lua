@@ -20,6 +20,7 @@ local tostring = global.tostring
 local table = global.table
 local Log = require("pc2mp.log")
 local Net = require("pc2mp.net")
+local SaveUpload = require("pc2mp.saveupload")
 local Events = require("pc2mp.events")
 local Replay = require("pc2mp.replay")
 
@@ -221,6 +222,13 @@ function Sync.OnMessage(msg, sRaw)
         Log.Write("Sync: Catch-up fertig bis Seq " .. tostring(msg.serverSeq))
     elseif t == "join" or t == "leave" then
         Log.Write("Sync: " .. t .. " " .. tostring(msg.name or msg.clientId))
+    elseif t == "quickSave" then
+        -- jemand will joinen: schnell speichern + hochladen (pc2mp.saveupload)
+        Log.Write("Sync: Quick-Save angefordert von " .. tostring(msg.by))
+        local ok, err = pcall(SaveUpload.QuickSave, msg.seq)
+        if not ok then Log.Write("Sync: Quick-Save Fehler: " .. tostring(err)) end
+    elseif t == "saveStored" then
+        Log.Write("Sync: Server hat den Spielstand gespeichert (seq " .. tostring(msg.seq) .. ")")
     elseif t == "error" then
         Log.Write("Sync: Server-Fehler " .. tostring(msg.code) .. ": " .. tostring(msg.msg))
     end
@@ -250,7 +258,7 @@ end
 ---------------------------------------------------------------------
 function Sync.UpdateHello()
     local c = Sync.tConfig or {}
-    Net.SetHello({ t = "hello", v = 1, name = c.name or "Spieler", park = c.park or "default",
+    Net.SetHello({ t = "hello", v = 1, name = c.name or "Spieler", park = Sync.sRoom or "default",
                    lastSeq = api.pc2mp.nLastSeq })
 end
 
@@ -266,6 +274,15 @@ function Sync.Start()
         return false
     end
     Sync.tConfig = tCfg
+    -- Room (= "Server" in der Dev-UI): beim Join über die UI gesetzt (pc2mp.menu), sonst Config-Fallback
+    local tJoin = api.pc2mp and api.pc2mp.tJoin
+    if tJoin ~= nil then api.pc2mp.tJoin = nil end
+    Sync.sRoom = (tJoin and tJoin.room) or tCfg.park
+    Sync.nJoinLastSeq = tJoin and global.math.tointeger(global.tonumber(tJoin.lastSeq) or 0) or nil
+    if Sync.sRoom == nil or Sync.sRoom == "" then
+        Log.Write("Sync: Welt nicht über die Dev-UI gejoint -> offline")
+        return false
+    end
     Log.Write("Sync: " .. Net.Info())
     -- Neuer Park/Environment: Zuordnungen kommen (falls vorhanden) aus dem Spielstand (pc2mp.persist),
     -- sonst gilt: alles ab Seq 0 vom Server holen (frischer Start-Spielstand).
@@ -284,9 +301,12 @@ function Sync.Start()
             if Sync.bActive then SendAction(tAction) end
         end }
     end
+    SaveUpload.Persist = Sync.Persist
+    SaveUpload.fnSend = Net.Send
+    SaveUpload.fnCanUpload = function() return Sync.bActive and not Sync.bWaitConnect and Net.IsConnected() end
     Sync.bActive = true
     api.pc2mp.Sync = Sync -- für den Undo-Hook (läuft in einem anderen Modul-Kontext)
-    Log.Write("Sync: Multiplayer aktiv, Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
+    Log.Write("Sync: Multiplayer aktiv, Room " .. tostring(Sync.sRoom) .. ", Server " .. tostring(tCfg.host) .. ":" .. tostring(Sync.nPort)
         .. ", Instanz " .. Sync.sInstance)
     return true
 end
@@ -298,6 +318,11 @@ function Sync.GetPersistState()
     local tMap = {}
     for sNet, H in pairs(Sync.tByNet) do
         if H.partID ~= nil then tMap[sNet] = H.partID end
+    end
+    -- Das Spiel speichert gerade -> danach die Datei auf den Server laden (#21)
+    if Sync.bActive then
+        local ok, err = pcall(SaveUpload.OnSaveStarted, api.pc2mp.nLastSeq)
+        if not ok then Log.Write("Sync: SaveUpload Fehler: " .. tostring(err)) end
     end
     return { lastSeq = api.pc2mp.nLastSeq, map = tMap }
 end
@@ -341,6 +366,8 @@ function Sync.Tick()
         end
         if bResolved and Sync.nWaitFrames >= 30 then
             Sync.bWaitConnect = false
+            -- Join über die UI: der Server weiß, bis zu welcher Seq der Spielstand reicht
+            if Sync.nJoinLastSeq ~= nil then api.pc2mp.nLastSeq = Sync.nJoinLastSeq end
             Sync.UpdateHello()
             -- Die DLL hält die Verbindung über Park-Wechsel hinweg; neu verbinden, damit hello (lastSeq) neu geht
             Net.Disconnect()
@@ -350,6 +377,8 @@ function Sync.Tick()
         return
     end
     Net.Pump(Sync.OnMessage, 32)
+    local okU, errU = pcall(SaveUpload.Tick)
+    if not okU then Log.Write("SaveUpload.Tick Fehler: " .. tostring(errU)) end
     local sStatus, _, _, nConn = Net.Status()
     local sKey = sStatus .. "/" .. tostring(nConn)
     if sKey ~= Sync.nLastStatusLog then

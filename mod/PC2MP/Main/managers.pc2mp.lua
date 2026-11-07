@@ -20,6 +20,7 @@ local UndoGuard = require("pc2mp.undoguard")
 local WorldEdit = require("pc2mp.worldedit")
 local Sync = require("pc2mp.sync")
 local UndoHook = require("pc2mp.undohook")
+local Menu = require("pc2mp.menu")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -35,6 +36,8 @@ end
 
 function PC2MPManager.Activate(self)
     Log.Write("Manager Activate")
+    api.pc2mp = api.pc2mp or {}
+    api.pc2mp.bInPark = true
     local ok, tWorldAPIs = pcall(api.world.GetWorldAPIs)
     if not ok then
         Log.Write("GetWorldAPIs Fehler: " .. tostring(tWorldAPIs))
@@ -62,6 +65,8 @@ function PC2MPManager.Activate(self)
     if not okS then Log.Write("Sync.Start Fehler: " .. tostring(bSync)) end
     if okS and bSync then
         pcall(UndoHook.EnsurePatched)
+    elseif Sync.tConfig ~= nil then
+        Log.Write("Offline (nicht über die Dev-UI gejoint)")
     else
         Events.AddListener(Mirror.OnAction)
         WorldEdit.bMirror = true
@@ -74,6 +79,9 @@ end
 
 function PC2MPManager.Advance(self, _nDeltaTime)
     if not self.bActive then return end
+    -- Dev-UI-Steuerung auch im Park (#21)
+    local okM, errM = pcall(Menu.Tick, "park")
+    if not okM then Log.Write("Menu.Tick Fehler: " .. tostring(errM)) end
     local ok, err = pcall(Events.Tick)
     if not ok then Log.Write("Events.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Replay.Tick)
@@ -87,6 +95,7 @@ end
 function PC2MPManager.Deactivate(self)
     Log.Write("Manager Deactivate")
     self.bActive = false
+    if api.pc2mp then api.pc2mp.bInPark = false end
     pcall(Sync.Stop)
     pcall(Events.Unregister)
 end

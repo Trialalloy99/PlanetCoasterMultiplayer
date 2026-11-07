@@ -37,8 +37,10 @@ _Zuletzt aktualisiert: 2026-11-07 von agent:maxi_
   Persistenz (#14) im Spiel bestätigt: 619 Zuordnungen im Spielstand. → **gemergt von agent:maxi, Release v0.4.1-mp** (alle Mod-Tests grün).
 
 ## In Arbeit
-- [maxi] **Dev-UI (Electron) + Hauptmenü-Steuerung** (Issue Dev-UI): Welten auflisten/laden, Online-Spieler, Join.
-  Neue Dateien `managers.pc2mpgame.lua`, `devui/`; bitte dort nicht parallel ändern.
+- [maxi] **#21 Dev-UI + zentraler Server (Rooms)**, gemergt: Hauptmenü-Steuerung im Spiel bestätigt (Welten auflisten,
+  per Befehl laden). Server mit Rooms live auf dem VPS. `devui/` (Electron), Join, New Server, Auto-Upload nach Speichern,
+  Quick-Save beim Join (`pc2mp.saveupload`) – **Join/Upload/Quick-Save im Spiel noch NICHT getestet.**
+  Offen: ob das Spiel einen neu heruntergeladenen Spielstand ohne Neustart erkennt; „letzter Spieler speichert beim Verlassen“.
 - [maxi] #8 Capture-Modul `mod/PC2MP/Main/pc2mp.capture.lua` (ACTION-JSON pro Commit) – gebaut, wartet auf Ingame-Test
 - [trialalloy] PR #12 → Ingame-Smoke-Test (braucht jemanden mit ACSE, Anleitung in native-bridge.md), danach #3 Save/Load
 

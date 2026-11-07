@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <title>PC2MP Dev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">PC2MP <span>dev</span></div>
+    <div class="pills">
+      <span class="pill" id="pill-game"><i></i><b>Spiel</b> <em>–</em></span>
+      <span class="pill" id="pill-server"><i></i><b>Server</b> <em>–</em></span>
+    </div>
+    <button id="btn-connect" class="primary">Connect</button>
+  </header>
+
+  <nav>
+    <button class="tab active" data-tab="worlds">Meine Welten</button>
+    <button class="tab" data-tab="servers">Servers</button>
+  </nav>
+
+  <main>
+    <section id="tab-worlds" class="panel active">
+      <div class="toolbar">
+        <p class="hint">Deine Spielstände. <b>Laden</b> öffnet die Welt im Spiel (nur für dich).</p>
+      </div>
+      <ul id="world-list" class="list"><li class="empty">Erst auf Connect drücken.</li></ul>
+    </section>
+
+    <section id="tab-servers" class="panel">
+      <div class="toolbar">
+        <p class="hint">Welten auf dem Server. Join lädt die Welt mit allem, was zuletzt gebaut wurde.</p>
+        <button id="btn-new" class="primary" disabled>New Server</button>
+      </div>
+      <ul id="server-list" class="list"><li class="empty">Erst auf Connect drücken.</li></ul>
+    </section>
+  </main>
+
+  <div id="busy" class="busy hidden">
+    <div class="busy-box">
+      <div class="spinner"></div>
+      <p id="busy-text">…</p>
+      <div class="bar hidden" id="busy-bar"><div></div></div>
+    </div>
+  </div>
+
+  <dialog id="dlg-new">
+    <form method="dialog" id="form-new">
+      <h2>New Server</h2>
+      <label>Name<input id="new-name" required maxlength="40" placeholder="z. B. Freizeitpark Maxi & Finn"></label>
+      <label>Welt<select id="new-world" required></select></label>
+      <p class="hint">Der Spielstand wird auf den Server hochgeladen. Danach kann jeder joinen, auch wenn du offline bist.</p>
+      <div class="actions">
+        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button value="ok" class="primary">Erstellen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer>
+    <details>
+      <summary>Log</summary>
+      <pre id="log"></pre>
+    </details>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

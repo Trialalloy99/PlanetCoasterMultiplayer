@@ -74,6 +74,10 @@ package.preload["pc2mp.worldedit"] = function()
     function W.Apply(a, off, done) weApplied[#weApplied + 1] = a; if done then done(true) end end
     return W
 end
+local suStarted = {}
+package.preload["pc2mp.saveupload"] = function()
+    return { OnSaveStarted = function(n) suStarted[#suStarted + 1] = n end, QuickSave = function() end, Tick = function() end }
+end
 preload("pc2mp.sync")
 
 local Sync = require("pc2mp.sync")
@@ -179,5 +183,13 @@ inbox[#inbox + 1] = { t = "action", seq = 50, clientId = "c9", action = { op = "
 inbox[#inbox + 1] = { t = "action", seq = 51, clientId = "c1", action = { op = "terrain", origin = Sync.sInstance } }
 Sync.Tick()
 check(#weApplied == 1 and weApplied[1].op == "volume", "fremder Weg wird nachgespielt, eigenes Terrain-Echo nicht")
+
+-- ---------------------------------------------------------------- 7. Join über die Dev-UI
+api.pc2mp.tJoin = { room = "Freizeitpark", lastSeq = 120 }
+Sync.Start()
+check(Sync.sRoom == "Freizeitpark" and api.pc2mp.tJoin == nil, "Join: Room aus der UI übernommen")
+Sync.OnPersistLoaded({ lastSeq = 7, map = {} })
+for _ = 1, 30 do Sync.Tick() end
+check(Net.hello.park == "Freizeitpark" and Net.hello.lastSeq == 120, "Join: hello mit Room und Spielstand-Seq vom Server")
 
 print("\nALLE SYNC-TESTS OK")

@@ -21,11 +21,33 @@ class TestClient:
         OPEN_CLIENTS.append(self)
 
     @classmethod
-    async def connect(cls, port, name, last_seq=0):
+    async def connect(cls, port, name, last_seq=0, park="test", role=None):
         r, w = await asyncio.open_connection("127.0.0.1", port, limit=4 * 1024 * 1024)
         c = cls(r, w)
-        await c.send({"t": "hello", "v": 1, "name": name, "park": "test", "lastSeq": last_seq})
+        hello = {"t": "hello", "v": 1, "name": name, "park": park, "lastSeq": last_seq}
+        if role:
+            hello["role"] = role
+        await c.send(hello)
         return c
+
+    async def upload(self, data, **extra):
+        sha = hashlib.sha256(data).hexdigest()
+        await self.send({"t": "saveUpload", "seq": extra.pop("seq", 0), "name": "p.park2", "size": len(data),
+                         "sha256": sha, **extra})
+        for i in range(0, len(data), 300000):
+            await self.send({"t": "saveChunk", "data": base64.b64encode(data[i:i + 300000]).decode()})
+        await self.send({"t": "saveEnd"})
+        return sha
+
+    async def download(self, **extra):
+        await self.send({"t": "saveRequest", **extra})
+        begin = await self.recv_until("saveBegin")
+        buf = b""
+        while True:
+            m = await self.recv()
+            if m["t"] == "saveEnd":
+                return begin, buf
+            buf += base64.b64decode(m["data"])
 
     async def send(self, msg):
         self.w.write((json.dumps(msg) + "\n").encode())
@@ -57,8 +79,7 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await self._start()
 
     async def _start(self):
-        self.store = srvmod.ParkStore(Path(self.tmp.name) / "park")
-        self.server = srvmod.Server(self.store, "test")
+        self.server = srvmod.Server(Path(self.tmp.name))
         self.srv = await srvmod.start(self.server, "127.0.0.1", 0)
         self.port = self.srv.sockets[0].getsockname()[1]
 
@@ -70,7 +91,11 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(self.srv.wait_closed(), 3)
         except asyncio.TimeoutError:
             pass
-        self.store.close()
+        for r in self.server.rooms.values():
+            r.store.close()
+
+    def nid(self, n):
+        return self.server.rooms["test"].store.meta.get("netPrefix", "") + f"n{n}"
 
     async def asyncTearDown(self):
         await self._stop()
@@ -106,11 +131,11 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         mb = await b.recv_until("action")
         self.assertEqual(mb["seq"], 1)
         self.assertEqual(mb["clientId"], "c1")
-        self.assertEqual(mb["action"]["objects"][0]["netId"], "n1")
+        self.assertEqual(mb["action"]["objects"][0]["netId"], self.nid(1))
         ma = await a.recv_until("action")  # Echo als Bestätigung
         self.assertEqual(ma["cseq"], 1)
         ids = await a.recv_until("ids")
-        self.assertEqual(ids["map"], [{"localId": 55, "netId": "n1"}])
+        self.assertEqual(ids["map"], [{"localId": 55, "netId": self.nid(1)}])
         # Edit-Aktion bekommt keine neue netId
         await b.send({"t": "action", "cseq": 1, "action": {"op": "commit",
                       "calls": [{"m": "EditExistingPart"}], "objects": [{"partID": 9}]}})
@@ -124,12 +149,12 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await a.send({"t": "action", "cseq": 1, "action": {
             "op": "upsert", "localId": 77, "resource": "Tree", "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1}})
         m = await a.recv_until("action")
-        self.assertEqual(m["action"]["netId"], "n1")
-        self.assertEqual((await a.recv_until("ids"))["map"], [{"localId": 77, "netId": "n1"}])
+        self.assertEqual(m["action"]["netId"], self.nid(1))
+        self.assertEqual((await a.recv_until("ids"))["map"], [{"localId": 77, "netId": self.nid(1)}])
         # Folge-Upsert mit netId bekommt keine neue ID
-        await a.send({"t": "action", "cseq": 2, "action": {"op": "upsert", "netId": "n1", "pos": [5, 5, 5]}})
+        await a.send({"t": "action", "cseq": 2, "action": {"op": "upsert", "netId": self.nid(1), "pos": [5, 5, 5]}})
         m2 = await a.recv_until("action")
-        self.assertEqual(m2["action"]["netId"], "n1")
+        self.assertEqual(m2["action"]["netId"], self.nid(1))
         await a.close()
 
     async def test_catch_up_and_persistence(self):
@@ -179,6 +204,91 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await a.send({"t": "ping", "time": 5})
         self.assertEqual(await a.recv(), {"t": "pong", "time": 5})
         await a.close()
+
+    # ------------------------------------------------------------ Rooms / Dev-UI
+    async def test_rooms_are_separate(self):
+        a = await TestClient.connect(self.port, "A", park="W1"); await a.recv_until("caughtUp")
+        b = await TestClient.connect(self.port, "B", park="W2"); await b.recv_until("caughtUp")
+        await a.send({"t": "action", "cseq": 1, "action": {"op": "upsert", "localId": 5, "resource": "T"}})
+        m = await a.recv_until("action")
+        self.assertEqual(m["seq"], 1)
+        await b.send({"t": "ping", "time": 1})
+        self.assertEqual((await b.recv())["t"], "pong", "anderer Room bekommt keine Aktion")
+        ids = await a.recv_until("ids")
+        self.assertTrue(ids["map"][0]["netId"].startswith("r"), "neue Rooms haben netId-Praefix")
+        await a.close(); await b.close()
+
+    async def test_ui_create_server_list_and_download(self):
+        ui = await TestClient.connect(self.port, "UI", role="ui")
+        self.assertEqual((await ui.recv())["role"], "ui")
+        self.assertEqual((await ui.recv())["rooms"], [])
+        data = bytes(range(256)) * 3000
+        sha = await ui.upload(data, room="Mein Park", create=True)
+        stored = await ui.recv_until("saveStored")
+        self.assertEqual(stored["room"], "Mein Park")
+        rooms = (await ui.recv_until("rooms"))["rooms"]
+        self.assertEqual(rooms[0]["name"], "Mein Park")
+        self.assertTrue(rooms[0]["hasSave"])
+        await ui.upload(b"x", room="Mein Park", create=True)
+        self.assertEqual((await ui.recv_until("error"))["code"], "room_exists")
+        g = await TestClient.connect(self.port, "Maxi", park="Mein Park"); await g.recv_until("caughtUp")
+        rooms = (await ui.recv_until("rooms"))["rooms"]
+        self.assertEqual(rooms[0]["online"], ["Maxi"])
+        begin, buf = await ui.download(room="Mein Park")
+        self.assertEqual((begin["sha256"], buf), (sha, data))
+        await ui.close(); await g.close()
+
+    async def test_join_without_players_is_ready_immediately(self):
+        ui = await TestClient.connect(self.port, "UI", role="ui"); await ui.recv_until("rooms")
+        await ui.upload(b"abc", room="Leer", create=True); await ui.recv_until("saveStored")
+        await ui.send({"t": "joinPrepare", "room": "Leer"})
+        r = await ui.recv_until("saveReady")
+        self.assertTrue(r["hasSave"]); self.assertFalse(r["fresh"]); self.assertEqual(r["saveSeq"], 0)
+        await ui.close()
+
+    async def test_join_with_player_triggers_quicksave_and_holds_actions(self):
+        ui = await TestClient.connect(self.port, "UI", role="ui"); await ui.recv_until("rooms")
+        await ui.upload(b"alt", room="Park", create=True); await ui.recv_until("saveStored")
+        g = await TestClient.connect(self.port, "Maxi", park="Park"); await g.recv_until("caughtUp")
+        await g.send({"t": "action", "cseq": 1, "action": {"op": "upsert", "localId": 1, "resource": "T"}})
+        await g.recv_until("action")
+        await ui.send({"t": "joinPrepare", "room": "Park"})
+        w = await ui.recv_until("waitingForSave")
+        self.assertEqual(w["saver"], "Maxi")
+        qs = await g.recv_until("quickSave")
+        self.assertEqual(qs["seq"], 1)
+        await g.send({"t": "action", "cseq": 2, "action": {"op": "upsert", "localId": 2, "resource": "T"}})
+        await g.send({"t": "ping", "time": 9})
+        self.assertEqual((await g.recv_until("pong"))["time"], 9)
+        await g.upload(b"neu", seq=1)
+        self.assertEqual((await g.recv_until("saveStored"))["seq"], 1)
+        held = await g.recv_until("action")
+        self.assertEqual(held["seq"], 2, "zurueckgehaltene Aktion kommt nach dem Spielstand")
+        r = await ui.recv_until("saveReady")
+        self.assertTrue(r["fresh"]); self.assertEqual(r["saveSeq"], 1); self.assertEqual(r["pending"], 1)
+        begin, buf = await ui.download(room="Park")
+        self.assertEqual(buf, b"neu")
+        await ui.close(); await g.close()
+
+    async def test_quicksave_saver_leaves(self):
+        ui = await TestClient.connect(self.port, "UI", role="ui"); await ui.recv_until("rooms")
+        await ui.upload(b"alt", room="P", create=True); await ui.recv_until("saveStored")
+        g = await TestClient.connect(self.port, "Maxi", park="P"); await g.recv_until("caughtUp")
+        await ui.send({"t": "joinPrepare", "room": "P"}); await ui.recv_until("waitingForSave")
+        await g.recv_until("quickSave"); await g.close()
+        r = await ui.recv_until("saveReady")
+        self.assertFalse(r["fresh"]); self.assertTrue(r["hasSave"])
+        await ui.close()
+
+    async def test_rooms_survive_restart(self):
+        a = await TestClient.connect(self.port, "A", park="Bleibt"); await a.recv_until("caughtUp")
+        await a.send({"t": "action", "cseq": 1, "action": {"op": "undo"}}); await a.recv_until("action")
+        await a.close()
+        await self._stop(); await self._start()
+        ui = await TestClient.connect(self.port, "UI", role="ui"); await ui.recv()
+        rooms = (await ui.recv_until("rooms"))["rooms"]
+        self.assertEqual([(r["name"], r["serverSeq"]) for r in rooms], [("Bleibt", 1)])
+        await ui.close()
 
 
 if __name__ == "__main__":
