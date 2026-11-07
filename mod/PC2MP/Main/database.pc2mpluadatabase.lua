@@ -60,6 +60,13 @@ function LuaDB.AddLuaHooks(_fnAdd)
     _fnAdd("Managers.ParkLoadSaveManager", function(tModule)
         require("pc2mp.menu").AcseHookPlm(tModule)
     end)
+    -- Hauptmenü: diese Module laden erst mit der Menü-Welt, also nach ACSE (#21)
+    _fnAdd("StartScreen.Shared.StartScreenStateHelper", function(tModule)
+        require("pc2mp.menu").AcseHookAdvance(tModule, "menu-statehelper")
+    end)
+    _fnAdd("StartScreen.Globe.GlobeMode", function(tModule)
+        require("pc2mp.menu").AcseHookAdvance(tModule, "menu-globemode")
+    end)
 end
 
 function LuaDB.AddLuaManagers(_fnAdd)

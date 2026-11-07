@@ -173,17 +173,17 @@ end
 
 -- Einmal pro Frame aufrufen (Manager.Advance oder Fallback-Hook); doppelte Aufrufe im selben Frame werden ignoriert
 function Menu.Tick(sSource, nFrameHint)
+    -- Mehrere Einstiege (Hooks im Menü, Park-Manager) rufen Tick auf; nur einer ("Besitzer") zählt.
+    -- Ruft der Besitzer länger nicht mehr (z. B. Menü-Welt entladen), übernimmt ein anderer.
     if sSource ~= Menu.sSource then
-        if Menu.sSource == nil then
-            Menu.sSource = sSource
-            Log.Write("Menu: aktiv über " .. tostring(sSource))
-            Menu.StartRefresh()
-        elseif sSource ~= "manager" then
-            return -- Manager hat Vorrang vor dem Fallback-Hook
-        else
-            Menu.sSource = sSource
-        end
+        Menu.nOtherCalls = (Menu.nOtherCalls or 0) + 1
+        if Menu.sSource ~= nil and Menu.nOtherCalls <= 10 then return end
+        Log.Write("Menu: aktiv über " .. tostring(sSource) .. (Menu.sSource and (" (vorher " .. Menu.sSource .. ")") or ""))
+        local bFirst = Menu.sSource == nil
+        Menu.sSource = sSource
+        if bFirst then Menu.StartRefresh() end
     end
+    Menu.nOtherCalls = 0
     Menu.nFrame = Menu.nFrame + 1
     if Menu.coJob then
         local ok, err = coroutine.resume(Menu.coJob)
@@ -198,18 +198,24 @@ function Menu.Tick(sSource, nFrameHint)
     end
 end
 
--- Fallback, falls ACSE den Manager in Game.GameEnvironment nicht einhängen kann:
--- ParkLoadSaveManager.Advance läuft in Hauptmenü und Park jeden Frame.
-function Menu.AcseHookPlm(tModule)
-    local fnOrig = tModule.Advance
-    if type(fnOrig) ~= "function" or tModule.__pc2mpMenuHooked then return end
-    tModule.__pc2mpMenuHooked = true
-    tModule.Advance = function(self, ...)
-        local ok, err = pcall(Menu.Tick, "plm-hook")
+-- Einstiege über ACSE-Hooks (AddLuaHooks): wrappt tModule[sFn] und tickt Menu darüber.
+-- Game.GameEnvironment / ParkLoadSaveManager werden vor ACSE geladen (Hooks greifen dort nicht),
+-- die Startbildschirm-Module erst mit der Menü-Welt -> dort klappt es.
+function Menu.AcseHookAdvance(tModule, sSource, sFn)
+    sFn = sFn or "Advance"
+    local fnOrig = tModule and tModule[sFn]
+    if type(fnOrig) ~= "function" then
+        Log.Write("Menu: " .. tostring(sSource) .. "." .. sFn .. " nicht gefunden")
+        return
+    end
+    tModule[sFn] = function(self, ...)
+        local ok, err = pcall(Menu.Tick, sSource)
         if not ok then Log.Write("Menu.Tick Fehler: " .. tostring(err)) end
         return fnOrig(self, ...)
     end
-    Log.Write("Menu: Hook auf ParkLoadSaveManager.Advance gesetzt")
+    Log.Write("Menu: Hook auf " .. tostring(sSource) .. "." .. sFn .. " gesetzt")
 end
+
+function Menu.AcseHookPlm(tModule) Menu.AcseHookAdvance(tModule, "plm-hook") end
 
 return Menu

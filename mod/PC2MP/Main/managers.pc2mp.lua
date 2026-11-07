@@ -20,6 +20,7 @@ local UndoGuard = require("pc2mp.undoguard")
 local WorldEdit = require("pc2mp.worldedit")
 local Sync = require("pc2mp.sync")
 local UndoHook = require("pc2mp.undohook")
+local Menu = require("pc2mp.menu")
 
 local PC2MPManager = module(..., Mutators.Manager())
 
@@ -76,6 +77,9 @@ end
 
 function PC2MPManager.Advance(self, _nDeltaTime)
     if not self.bActive then return end
+    -- Dev-UI-Steuerung auch im Park (#21)
+    local okM, errM = pcall(Menu.Tick, "park")
+    if not okM then Log.Write("Menu.Tick Fehler: " .. tostring(errM)) end
     local ok, err = pcall(Events.Tick)
     if not ok then Log.Write("Events.Tick Fehler: " .. tostring(err)) end
     ok, err = pcall(Replay.Tick)

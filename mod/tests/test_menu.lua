@@ -54,7 +54,9 @@ check(S("ui_state.json").cmd.ok == false, "unbekannte Welt -> Fehler im Status")
 
 local n = Menu.nFrame
 tick(5, "plm-hook")
-check(Menu.nFrame == n, "Fallback-Hook tickt nicht doppelt, wenn der Manager läuft")
+check(Menu.nFrame == n, "zweiter Einstieg tickt nicht doppelt, solange der erste läuft")
+tick(20, "plm-hook")
+check(Menu.sSource == "plm-hook", "anderer Einstieg übernimmt, wenn der erste verstummt")
 api.pc2mp = { bInPark = true }
 tick(30)
 check(S("ui_state.json").mode == "park", "Modus park erkannt")
