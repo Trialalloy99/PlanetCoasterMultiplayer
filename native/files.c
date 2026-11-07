@@ -26,6 +26,12 @@ void files_init(const char *dll_dir)
     snprintf(g_data_dir, sizeof(g_data_dir), "%sdata\\", dll_dir);
 }
 
+void files_data_dir(char *out, size_t cap)
+{
+    CreateDirectoryA(g_data_dir, NULL);
+    snprintf(out, cap, "%s", g_data_dir);
+}
+
 int files_valid_name(const char *s, size_t n, const char *ext)
 {
     size_t i, el = ext ? strlen(ext) : 0;

@@ -82,6 +82,31 @@ local function RawCall(sName, ...)
     end
     return v
 end
+-- Optionale, neuere Exporte einzeln laden (alte DLL -> nil statt Ausfall der ganzen Persistenz).
+-- Rückgabe: fn(...) -> Wert (Strings bereits umgewandelt) | nil
+Persist.tOptional = {}
+function Persist.Native(sName)
+    local e = Persist.tOptional[sName]
+    if e ~= nil then return e or nil end
+    local pkg = global.package
+    local ok, fn = false, nil
+    if type(pkg) == "table" and type(pkg.loadlib) == "function" then ok, fn = pcall(pkg.loadlib, Persist.sDllPath, sName) end
+    if not ok or type(fn) ~= "function" then
+        Log.Write("Persist: optionaler Export " .. sName .. " fehlt (DLL zu alt? Spiel beenden und Mod neu installieren)")
+        Persist.tOptional[sName] = false
+        return nil
+    end
+    Fns() -- read_i64 für den Fallback-Modus
+    local w = function(...)
+        local okC, v = pcall(fn, ...)
+        if not okC then Log.Write("Persist: " .. sName .. " Fehler: " .. tostring(v)); return nil end
+        if type(v) == "number" and sName ~= "pc2mp_write_file_b64" and Persist.tFns then return ToStr(v) end
+        return v
+    end
+    Persist.tOptional[sName] = w
+    return w
+end
+
 -- Funktionen, die einen String (oder nil) liefern
 local function CallStr(sName, ...) return ToStr(RawCall(sName, ...)) end
 -- Funktionen, die 1/0 liefern

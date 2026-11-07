@@ -4,6 +4,9 @@
 --/    facility  Laden/Toilette/... -> Position     (facilities:GetAllFacilityEntityIDs)
 --/    shopinv   Sortiment eines Ladens -> Position des Ladens (facilities:GetShopInventoryEntityID(fac))
 --/    staff     Mitarbeiter -> Name                (staff:GetAllStaffEntities, GetStaffUIName)
+--/    ride      Fahrgeschäft -> Position der Ride-Entity   (rides:GetAllRides)
+--/    station   Station eines Fahrgeschäfts -> Position    (rides:GetStationsForRide)
+--/    pool      Pool -> Position                           (pools:GetAllPools)
 --/    place     Arbeitsort (Laden, Personalgebäude, Fahrgeschäft-Station) -> Position
 --/  Voraussetzung: beide Clients haben denselben Spielstand + synchronisierten Bau (gleiche Positionen).
 --/  Verifiziert im dekompilierten Lua (Stand 2026-11-07), noch NICHT im Spiel getestet.
@@ -51,6 +54,15 @@ end
 
 function ER.Facilities() return Values(Call(TW().facilities, "GetAllFacilityEntityIDs")) end
 function ER.Staff() return Values(Call(TW().staff, "GetAllStaffEntities")) end
+
+function ER.Rides() return Values(Call(TW().rides, "GetAllRides")) end
+function ER.Stations()
+    local o = {}
+    for _, nRide in ipairs(ER.Rides()) do
+        for _, s in ipairs(Values(Call(TW().rides, "GetStationsForRide", nRide))) do o[#o + 1] = s end
+    end
+    return o
+end
 
 function ER.Places()
     local tw = TW()
@@ -118,6 +130,9 @@ function ER.Resolve(sKind, tRef)
         return fac and Call(TW().facilities, "GetShopInventoryEntityID", fac) or nil
     end
     if sKind == "place" then return Nearest(ER.Places(), tRef.pos) end
+    if sKind == "ride" then return Nearest(ER.Rides(), tRef.pos) end
+    if sKind == "pool" then return Nearest(Values(Call(TW().pools, "GetAllPools")), tRef.pos) end
+    if sKind == "station" then return Nearest(ER.Stations(), tRef.pos) end
     return nil
 end
 

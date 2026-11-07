@@ -491,6 +491,55 @@ EXPORT int pc2mp_read_file(void *L)
     return 0;
 }
 
+/* pc2mp_data_dir() -> absoluter Pfad von <DLL-Ordner>\data\ (fuer Spiel-APIs, die einen Dateipfad wollen) */
+EXPORT int pc2mp_data_dir(void *L)
+{
+    GUARD_TRY {
+        char d[MAX_PATH];
+        files_data_dir(d, sizeof(d));
+        ensure_resolved();
+        return return_string(L, d, strlen(d));
+    } GUARD_CATCH { log_str("[native] pc2mp_data_dir: Exception"); }
+    return 0;
+}
+
+/* pc2mp_read_file_b64(name) -> base64 von data\<name> | nil   (Blaupausen fuers Netz) */
+EXPORT int pc2mp_read_file_b64(void *L)
+{
+    GUARD_TRY {
+        const char *n; size_t nl, len = 0;
+        char *raw = arg_string(L, 1, &n, &nl) ? files_read_data(n, nl, &len) : NULL;
+        char *out = NULL; size_t olen = 0;
+        if (raw) {
+            out = (char *)malloc(((len + 2) / 3) * 4 + 1);
+            if (out) olen = b64_encode((const unsigned char *)raw, len, out);
+            free(raw);
+        }
+        return return_malloced(L, out, olen);
+    } GUARD_CATCH { log_str("[native] pc2mp_read_file_b64: Exception"); }
+    return 0;
+}
+
+/* pc2mp_write_file_b64(name, b64) -> 1 | 0 */
+EXPORT int pc2mp_write_file_b64(void *L)
+{
+    GUARD_TRY {
+        const char *n, *b; size_t nl, bl;
+        int ok = 0;
+        if (arg_string(L, 1, &n, &nl) && arg_string(L, 2, &b, &bl)) {
+            unsigned char *raw = (unsigned char *)malloc(bl / 4 * 3 + 3);
+            long long rl = raw ? b64_decode(b, bl, raw) : -1;
+            if (rl >= 0) ok = files_write_data(n, nl, (const char *)raw, (size_t)rl, g_ferr, sizeof(g_ferr));
+            else snprintf(g_ferr, sizeof(g_ferr), "base64 ungueltig");
+            free(raw);
+        }
+        if (!ok) { char m[320]; snprintf(m, sizeof(m), "[native] write_file_b64: %s", g_ferr); log_str(m); }
+        push_int(L, ok);
+        return 1;
+    } GUARD_CATCH { log_str("[native] pc2mp_write_file_b64: Exception"); }
+    return 0;
+}
+
 /* pc2mp_saves_dir() -> Pfad des Saves-Ordners | nil */
 EXPORT int pc2mp_saves_dir(void *L)
 {

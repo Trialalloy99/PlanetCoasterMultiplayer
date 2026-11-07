@@ -8,6 +8,7 @@
 #define FILES_MAX_SAVE      (256u * 1024u * 1024u)
 
 void   files_init(const char *dll_dir);            /* Verzeichnis der DLL (mit '\') */
+void   files_data_dir(char *out, size_t cap);        /* <DLL-Ordner>\data\ (wird angelegt) */
 int    files_valid_name(const char *s, size_t n, const char *ext); /* [A-Za-z0-9_.-], 1..96, ext optional */
 
 int    files_write_data(const char *name, size_t nl, const char *data, size_t len, char *err, size_t ecap);

@@ -179,6 +179,12 @@ local function OnRemoteAction(msg)
         end
         return
     end
+    -- Fahrgeschäfte/Achterbahnen als Blaupause (pc2mp.rides)
+    if a.op == "ridebp" or a.op == "ride" or a.op == "ridedel" then
+        local okR, Rides = pcall(require, "pc2mp.rides")
+        if okR then Rides.ApplyRemote(a, tostring(msg.clientId)) end
+        return
+    end
     -- Wetterwechsel des Mitspielers: vorerst nur anzeigen (Zuordnung Wettertyp -> Override-Index unbekannt)
     if a.op == "weather" then
         Log.Write("Sync: Wetter beim Mitspieler " .. tostring(msg.clientId) .. ": " .. Log.ToStr(a.m))
@@ -364,6 +370,14 @@ function Sync.Start()
     end
     if okGS then
         GameState.tWeatherListeners = { function(tAction) if Sync.bActive then SendAction(tAction) end end }
+    end
+    local okRi, Rides = pcall(require, "pc2mp.rides")
+    if okRi then
+        Rides.bTestMode, Rides.nOffsetX = false, 0
+        Rides.tListeners = { function(tAction)
+            if not Sync.bActive then return end
+            if tAction.op == "ride" then Rides.SendOverNet(tAction, SendAction) else SendAction(tAction) end
+        end }
     end
     local okEc, Eco = pcall(require, "pc2mp.economy")
     if okEc then

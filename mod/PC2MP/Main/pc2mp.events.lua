@@ -82,6 +82,8 @@ local function Emit(tAction)
     end
 end
 
+Events.tExcludeResources = { "guestspawner" }
+
 -- PartIDs, die der Spieler selbst erzeugt/geändert hat (dürfen nie unterdrückt werden)
 Events.tKnownOriginals = {}
 
@@ -192,6 +194,14 @@ function Events.HandlePart(nPartID, nTry, bGateOk)
                 .. Events.nGateDropped .. ")")
         end
         return
+    end
+
+    -- Teile, die nie gespiegelt/gesendet werden (z. B. Bus-Gästespawner am Eingang: ein zweiter erzeugt extra Gäste)
+    if d.resource ~= nil then
+        local sLow = string.lower(d.resource)
+        for _, sPat in ipairs(Events.tExcludeResources) do
+            if sLow:find(sPat, 1, true) then return end
+        end
     end
 
     -- 3. Spieler-Aktion

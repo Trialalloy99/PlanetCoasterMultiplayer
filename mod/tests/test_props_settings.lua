@@ -67,7 +67,7 @@ package.preload["Quaternion"] = function() return { Identity = "QI", FromPackedA
 package.preload["TransformQ"] = function() return { FromOrPos = function(q, p) return { q = q, p = p } end } end
 package.preload["pc2mp.capture"] = function() return {} end
 for _, m in ipairs({ "pc2mp.props", "pc2mp.replay", "pc2mp.events", "pc2mp.mirror", "pc2mp.gamestate",
-                     "pc2mp.testmode", "pc2mp.worldedit", "pc2mp.sequencer", "pc2mp.breakdowns", "pc2mp.economy", "pc2mp.entref" }) do preload(m) end
+                     "pc2mp.testmode", "pc2mp.worldedit", "pc2mp.sequencer", "pc2mp.breakdowns", "pc2mp.economy", "pc2mp.entref", "pc2mp.rides" }) do preload(m) end
 local Vector3 = require("Vector3")
 local Props = require("pc2mp.props")
 

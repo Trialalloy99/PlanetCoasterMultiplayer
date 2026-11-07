@@ -24,7 +24,7 @@ local Log = require("pc2mp.log")
 local TestMode = {}
 TestMode.sFile = "testmode.json"
 TestMode.nDefaultOffset = 25.0
-TestMode.nMaxLog = 15
+TestMode.nMaxLog = 40
 
 local function S()
     api.pc2mp = api.pc2mp or {}
@@ -137,6 +137,14 @@ function TestMode.ApplyInPark(bWanted)
         Eco.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
         Eco.bCashMaster, Eco.bHasPeers, Eco.nCashEvery = true, true, 900
         local Replay = require("pc2mp.replay")
+        -- Fahrgeschäfte/Achterbahnen: Blaupause lokal als Zwilling bei +Versatz einsetzen (live bei jeder Änderung)
+        local Rides = require("pc2mp.rides")
+        Rides.bTestMode, Rides.nOffsetX = true, nOff
+        Rides.fnOnEvent = function(s) if t.bActive then TestMode.Note(s) end end
+        Rides.tListeners = { function(a)
+            if a.op == "ride" then Rides.ApplyLocal(a, "Testmodus")
+            elseif a.op == "ridedel" then Rides.ApplyRemote(a, "Testmodus") end
+        end }
         Eco.tListeners = { function(a)
             if a.op == "cash" then
                 TestMode.Note("Kontostand " .. tostring(math.floor(a.n)) .. " würde an Mitspieler gesendet")
@@ -153,6 +161,8 @@ function TestMode.ApplyInPark(bWanted)
             WorldEdit.tListeners = {}
             GameState.tListeners = {}
             require("pc2mp.breakdowns").tListeners = {}
+            local Rides = require("pc2mp.rides")
+            Rides.tListeners, Rides.bTestMode, Rides.nOffsetX = {}, false, 0
             local Eco = require("pc2mp.economy")
             Eco.tListeners, Eco.bCashMaster, Eco.nOffsetX, Eco.sNameSuffix, Eco.bTwinMode = {}, false, 0, nil, false
             local ER = require("pc2mp.entref")
